@@ -19,7 +19,7 @@ export function readChosenCountry(
 
 export function saveChosenCountry(
   storage: Pick<Storage, 'setItem'> | undefined,
-  code: CountryCode,
+  code: string,
 ): void {
   try {
     storage?.setItem(KEY, code);

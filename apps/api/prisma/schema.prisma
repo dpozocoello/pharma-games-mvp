@@ -105,6 +105,8 @@ model Country {
   name      String
   locale    String
   timezone  String
+  /// Prefijo telefónico internacional (p. ej. "+51") para normalizar números locales
+  phonePrefix String @db.VarChar(5)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,6 +224,8 @@ model User {
   status       UserStatus @default(ACTIVE)
   /// Fecha en que el país quedó fijado (primer ingreso)
   countryLockedAt DateTime?
+  /// Último ingreso exitoso (panel del gerente: "quién no ha entrado")
+  lastLoginAt  DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -231,9 +235,32 @@ model User {
   sessions    GameSession[]
   ledger      PointsLedger[]       @relation("LedgerUser")
   testResults TestResult[]
+  refreshTokens RefreshToken[]
 
   @@unique([countryId, documentHash])
   @@index([countryId, role, status])
+}
+
+/// Refresh token opaco (solo se guarda su hash SHA-256). Rotación con detección de reutilización:
+/// presentar un token ya rotado revoca toda la familia (ADR-019).
+model RefreshToken {
+  id         String    @id @db.Uuid
+  userId     String    @db.Uuid
+  /// Todos los tokens de un mismo inicio de sesión comparten familia
+  familyId   String    @db.Uuid
+  /// Audiencia: "pwa" o "admin"
+  audience   String    @db.VarChar(8)
+  tokenHash  String    @unique @db.VarChar(64)
+  expiresAt  DateTime
+  rotatedAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([familyId])
+  @@index([userId, revokedAt])
 }
 
 model PharmacyAssignment {

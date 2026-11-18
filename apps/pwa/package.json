@@ -13,6 +13,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@pharma/game-sdk": "workspace:*",
+    "@pharma/game-trivia": "workspace:*",
+    "@pharma/game-true-false": "workspace:*",
     "@pharma/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.8",
     "react": "^18.3.1",

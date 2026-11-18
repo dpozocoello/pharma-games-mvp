@@ -1,15 +1,68 @@
-import { DynamicModule, Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { DynamicModule, Module, type Provider } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { JwtModule } from '@nestjs/jwt';
 import { LoggerModule } from 'nestjs-pino';
+import { AdminAnomaliesService } from './admin/admin-anomalies.service';
+import { AdminContentService } from './admin/admin-content.service';
+import { AdminCountriesController } from './admin/admin-countries.controller';
+import { AdminCountriesService } from './admin/admin-countries.service';
+import { AdminManagementController } from './admin/admin-management.controller';
+import { AdminUsersPharmaciesService } from './admin/admin-users-pharmacies.service';
+import { AuditService } from './audit/audit.service';
+import { AuthController } from './auth/auth.controller';
+import { AuthService } from './auth/auth.service';
+import { AuthGuard, ConsentGuard, RolesGuard } from './auth/guards';
+import { OtpQueue } from './auth/messaging/otp-queue';
+import {
+  ConsoleProvider,
+  FALLBACK_PROVIDER,
+  HttpSmsProvider,
+  OtpDeliveryService,
+  PRIMARY_PROVIDER,
+  WhatsAppCloudProvider,
+} from './auth/messaging/providers';
+import { OtpService } from './auth/otp.service';
+import { TokenService } from './auth/token.service';
 import { ProblemDetailsFilter } from './common/problem-details.filter';
-import { ENV, type Env } from './config/env';
+import { RateLimitGuard, RateLimitService } from './common/rate-limit';
+import { devToolsEnabled, ENV, type Env } from './config/env';
 import { CountriesController } from './countries/countries.controller';
+import { CountryConfigService } from './countries/country-config.service';
+import { DevOutboxController } from './dev/dev-outbox.controller';
+import { GamesController } from './games/games.controller';
+import { GamesService } from './games/games.service';
 import { HealthController } from './health/health.controller';
 import { InfraModule } from './infra/infra.module';
+import { ConsentService } from './me/consent.service';
+import { MeController } from './me/me.controller';
+import { MeService } from './me/me.service';
+import { MeasurementController } from './measurement/measurement.controller';
+import { MeasurementService } from './measurement/measurement.service';
+import { RankingsController } from './rankings/rankings.controller';
+import { RankingsService } from './rankings/rankings.service';
+
+function messagingProviders(env: Env): Provider[] {
+  const whatsapp = env.MESSAGING_PROVIDER === 'whatsapp';
+  return [
+    ConsoleProvider,
+    WhatsAppCloudProvider,
+    HttpSmsProvider,
+    {
+      provide: PRIMARY_PROVIDER,
+      useExisting: whatsapp ? WhatsAppCloudProvider : ConsoleProvider,
+    },
+    whatsapp
+      ? { provide: FALLBACK_PROVIDER, useExisting: HttpSmsProvider }
+      : { provide: FALLBACK_PROVIDER, useValue: null },
+    OtpDeliveryService,
+    OtpQueue,
+  ];
+}
 
 @Module({})
 export class AppModule {
   static register(env: Env): DynamicModule {
+    const devOutbox = devToolsEnabled(env) && env.MESSAGING_PROVIDER === 'console';
     return {
       module: AppModule,
       imports: [
@@ -45,10 +98,45 @@ export class AppModule {
               : {}),
           },
         }),
+        JwtModule.register({}),
         InfraModule,
       ],
-      controllers: [HealthController, CountriesController],
-      providers: [{ provide: APP_FILTER, useClass: ProblemDetailsFilter }],
+      controllers: [
+        HealthController,
+        CountriesController,
+        AuthController,
+        MeController,
+        GamesController,
+        RankingsController,
+        MeasurementController,
+        AdminCountriesController,
+        AdminManagementController,
+        ...(devOutbox ? [DevOutboxController] : []),
+      ],
+      providers: [
+        { provide: APP_FILTER, useClass: ProblemDetailsFilter },
+        // Orden: autenticación → límite de solicitudes → rol/audiencia → consentimiento.
+        { provide: APP_GUARD, useClass: AuthGuard },
+        { provide: APP_GUARD, useClass: RateLimitGuard },
+        { provide: APP_GUARD, useClass: RolesGuard },
+        { provide: APP_GUARD, useClass: ConsentGuard },
+        RateLimitService,
+        AuditService,
+        CountryConfigService,
+        TokenService,
+        OtpService,
+        AuthService,
+        ConsentService,
+        MeService,
+        GamesService,
+        RankingsService,
+        MeasurementService,
+        AdminCountriesService,
+        AdminUsersPharmaciesService,
+        AdminContentService,
+        AdminAnomaliesService,
+        ...messagingProviders(env),
+      ],
     };
   }
 }

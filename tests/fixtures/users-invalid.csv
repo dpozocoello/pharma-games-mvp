@@ -1,0 +1,8 @@
+countryCode,pharmacyCode,pharmacyName,city,phone,document,displayName,role
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200010,PECSV200010,Usuario Valido Uno,CLERK
+CO,CO-FAR-001,Farmacia Demo 1 Bogotá,Bogotá,+57300200011,COCSV200011,Usuario Pais Incorrecto,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,123,PECSV200012,Telefono Invalido,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200013,AB,Documento Muy Corto,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200014,PECSV200014,=CMD|'/C calc'!A0,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200010,PECSV200015,Telefono Duplicado En Archivo,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200016,PECSV200016,Rol No Permitido,SUPER_ADMIN

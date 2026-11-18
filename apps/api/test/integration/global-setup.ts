@@ -1,0 +1,61 @@
+import { execSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { PrismaClient } from '@prisma/client';
+import Redis from 'ioredis';
+import type { GlobalSetupContext } from 'vitest/node';
+
+/**
+ * Prepara una base `pharma_test` y la base 1 de Redis, separadas de las de desarrollo.
+ * Requiere PostgreSQL y Redis en marcha (`pnpm infra:up` en local; servicios en CI).
+ */
+export function testUrls(env: NodeJS.ProcessEnv = process.env) {
+  if (!env.DATABASE_URL || !env.REDIS_URL) {
+    throw new Error('Faltan DATABASE_URL y REDIS_URL (copia .env.example a .env)');
+  }
+  const db = new URL(env.TEST_DATABASE_URL ?? env.DATABASE_URL);
+  if (!env.TEST_DATABASE_URL) db.pathname = '/pharma_test';
+  const redis = new URL(env.TEST_REDIS_URL ?? env.REDIS_URL);
+  if (!env.TEST_REDIS_URL) redis.pathname = '/1';
+  return { databaseUrl: db.toString(), redisUrl: redis.toString() };
+}
+
+export default async function setup({ provide }: GlobalSetupContext) {
+  const { databaseUrl, redisUrl } = testUrls();
+  const env = { ...process.env, DATABASE_URL: databaseUrl, REDIS_URL: redisUrl };
+  const opts = { env, stdio: 'pipe' as const, cwd: resolve(__dirname, '../..') };
+
+  execSync('pnpm exec prisma migrate deploy', opts);
+  execSync('pnpm exec tsx prisma/seed.ts', opts);
+
+  // Limpia países creados por pruebas anteriores (códigos Z*), que no existen en las semillas.
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+  try {
+    const stale = await prisma.country.findMany({ where: { code: { startsWith: 'Z' } } });
+    for (const c of stale) {
+      await prisma.countryConfig.updateMany({
+        where: { countryId: c.id },
+        data: { consentVersionId: null },
+      });
+      await prisma.countryConfig.deleteMany({ where: { countryId: c.id } });
+      await prisma.consentVersion.deleteMany({ where: { countryId: c.id } });
+      await prisma.rankingPeriod.deleteMany({ where: { countryId: c.id } });
+      await prisma.country.delete({ where: { id: c.id } });
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+
+  const redis = new Redis(redisUrl);
+  await redis.flushdb();
+  await redis.quit();
+
+  provide('databaseUrl', databaseUrl);
+  provide('redisUrl', redisUrl);
+}
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    databaseUrl: string;
+    redisUrl: string;
+  }
+}

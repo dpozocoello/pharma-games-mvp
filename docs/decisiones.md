@@ -34,13 +34,13 @@ Formato: **ID — título** · fecha · decisión · motivo · alternativas.
 
 2026-11-17 · El tema (colores, logo) vive en `Brand` como valor por defecto y puede sobrescribirse en `BrandCountry.theme`. · El modelo §7 menciona "Brand / BrandCountry … con tema visual" sin precisar dónde; esta opción cubre ambos casos.
 
-## ADR-010 — Preguntas compartidas o por país
-
-2026-11-17 · `Question.countryId` es opcional: nulo = pregunta compartida por los países donde la marca está activa (adaptable con `CountryTermOverride`); con valor = pregunta exclusiva de ese país. Un `CONTENT_EDITOR` de país solo crea preguntas de su país; las compartidas las gestiona `SUPER_ADMIN`. · §7 pide `countryId` en toda entidad de negocio y a la vez define "pregunta compartida" con ajustes por país; esta opción cumple ambas. · Duplicar cada pregunta por país (más contenido que mantener).
-
 ## ADR-009 — Rol y alcance en `User`
 
 2026-11-17 · Un usuario tiene un solo `role`. `SUPER_ADMIN` tiene `countryId` nulo (alcance global); el resto lleva `countryId` obligatorio a nivel de aplicación. `PHARMACY_MANAGER` y `CLERK` se ligan a farmacia por `PharmacyAssignment`. · Lo más simple que cumple §3 módulo 5. · Tabla de asignaciones de roles múltiples (innecesaria en el MVP).
+
+## ADR-010 — Preguntas compartidas o por país
+
+2026-11-17 · `Question.countryId` es opcional: nulo = pregunta compartida por los países donde la marca está activa (adaptable con `CountryTermOverride`); con valor = pregunta exclusiva de ese país. Un `CONTENT_EDITOR` de país solo crea preguntas de su país; las compartidas las gestiona `SUPER_ADMIN`. · §7 pide `countryId` en toda entidad de negocio y a la vez define "pregunta compartida" con ajustes por país; esta opción cumple ambas. · Duplicar cada pregunta por país (más contenido que mantener).
 
 ## ADR-011 — Un solo `.env` en la raíz, cargado con `dotenv-cli`
 
@@ -58,10 +58,26 @@ Formato: **ID — título** · fecha · decisión · motivo · alternativas.
 
 2026-11-17 · El endpoint público de países (Iteración 1 en §10) se implementó ya, sin autenticación ni datos personales. · Permite verificar de punta a punta que `pnpm dev` levanta API, base de datos y PWA.
 
-## ADR-016 — NestJS 11, Zod 4 y Prisma 6 con override de `deepmerge-ts`
-
-2026-11-17 · NestJS 11.2 (CommonJS, Express 5, multer 2.5), Zod 4.6 y Prisma 6.19 con `pnpm.overrides` de `deepmerge-ts ^8`. · `pnpm audit` marcaba vulnerabilidades altas en NestJS 10 (multer, body-parser), Zod 3 y `deepmerge-ts 7` (vía Prisma 6). NestJS 12 es solo ESM y Prisma 7 cambia el modelo de configuración y de cliente: ambos se evalúan en una iteración propia. Quedan 2 avisos de severidad moderada; CI bloquea a partir de severidad alta. · Subir a NestJS 12 y Prisma 7 ahora (más riesgo en la base).
-
 ## ADR-015 — Pruebas de NestJS con Vitest + SWC
 
 2026-11-17 · `unplugin-swc` + `@swc/core` en las pruebas de la API. · esbuild (el transformador por defecto de Vitest) no emite la metadata de decoradores que necesita la inyección de dependencias de NestJS. · Jest (segundo ejecutor de pruebas en el repositorio).
+
+## ADR-016 — NestJS 11, Zod 4 y Prisma 6 con override de `deepmerge-ts`
+
+2026-11-17 · NestJS 11.2 (CommonJS, Express 5, multer 2.5), Zod 4.6 y Prisma 6.19 con `pnpm.overrides` de `deepmerge-ts ^8`. · `pnpm audit` marcaba vulnerabilidades altas en NestJS 10 (multer, body-parser), Zod 3 y `deepmerge-ts 7` (vía Prisma 6).
+
+## ADR-017 — Código OTP almacenado como HMAC-SHA256 en Redis con script Lua atómico
+
+2026-11-18 · El código de 6 dígitos nunca se guarda en claro en Redis: se almacena `HMAC-SHA256(AUTH_TOKEN_SECRET, app:userId:code)` junto al contador de intentos en un hash con TTL de 300 s, verificado con un script Lua atómico. · Si alguien vuelca la memoria de Redis no puede leer códigos activos, y la verificación/bloqueo al 5.º intento fallido no tiene condiciones de carrera.
+
+## ADR-018 — Cola BullMQ para envío de OTP con respaldo automático WhatsApp → SMS
+
+2026-11-18 · `OtpQueue` encola el envío en BullMQ (`removeOnComplete: true`) y `OtpDeliveryService` intenta primero `WhatsAppCloudProvider`; si lanza error o timeout, invoca `HttpSmsProvider` en el mismo intento antes de reintentar el job. En desarrollo (`MESSAGING_PROVIDER=console`), `ConsoleProvider` guarda el último código por 5 min en `dev:outbox:<phone>` consultable solo fuera de producción.
+
+## ADR-019 — Refresh tokens opacos por familia con margen de carrera de 10 s
+
+2026-11-18 · El refresh token (90 días) es un valor aleatorio opaco de 32 bytes en cookie `HttpOnly` (`pharma_rt_pwa` y `pharma_rt_admin` separados para que ambas apps convivan en `localhost`); en `RefreshToken` solo se persiste su SHA-256 y un `familyId`. Si se presenta un token ya rotado hace menos de 10 s devuelve `401 REFRESH_RACE` sin revocar la familia (tolera pestañas concurrentes); si han pasado más de 10 s revoca toda la familia por posible robo de token.
+
+## ADR-020 — Consentimiento obligatorio solo para roles jugadores (`CLERK` y `PHARMACY_MANAGER`)
+
+2026-11-18 · `ConsentGuard` bloquea por defecto las rutas para `CLERK` y `PHARMACY_MANAGER` hasta que acepten la `ConsentVersion` vigente de su país (`CountryConfig.consentVersionId`). Cuando un administrador publica una nueva versión de consentimiento, `consentVersionId` cambia y la app vuelve a exigir la aceptación antes de permitir jugar.

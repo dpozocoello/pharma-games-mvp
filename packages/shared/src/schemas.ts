@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import {
-  COUNTRY_CODES,
   QUESTION_STATUS_TRANSITIONS,
   QUESTION_TYPES,
   TRUE_FALSE_OPTIONS,
@@ -8,7 +7,11 @@ import {
   type QuestionType,
 } from './constants';
 
-export const countryCodeSchema = z.enum(COUNTRY_CODES);
+/**
+ * Código ISO 3166-1 alfa-2. Es genérico a propósito: agregar un país es configuración en base de
+ * datos, no un cambio de código (COUNTRY_CODES solo enumera los países de las semillas).
+ */
+export const countryCodeSchema = z.string().regex(/^[A-Z]{2}$/, 'Código de país inválido');
 
 /** Reglas de puntos y juego justo por país (CLAUDE.md §9). */
 export const pointsRulesSchema = z
@@ -157,5 +160,82 @@ export const publicCountrySchema = z.object({
   code: countryCodeSchema,
   name: z.string(),
   locale: z.string(),
+  phonePrefix: z.string(),
 });
 export type PublicCountry = z.infer<typeof publicCountrySchema>;
+
+// ───────────────────────────── Motor de Juegos (Iteración 3) ─────────────────────────────
+
+export const sessionAnswerItemSchema = z
+  .object({
+    questionId: z.string().uuid(),
+    answer: z.string().trim().min(1).max(64),
+    clientElapsedMs: z.number().int().min(0).max(600_000),
+  })
+  .strict();
+export type SessionAnswerItem = z.infer<typeof sessionAnswerItemSchema>;
+
+export const submitSessionAnswersSchema = z
+  .object({
+    token: z.string().min(16),
+    answers: z.array(sessionAnswerItemSchema).min(1).max(50),
+  })
+  .strict();
+export type SubmitSessionAnswersInput = z.infer<typeof submitSessionAnswersSchema>;
+
+export const finishSessionSchema = z
+  .object({
+    token: z.string().min(16),
+  })
+  .strict();
+export type FinishSessionInput = z.infer<typeof finishSessionSchema>;
+
+export interface CatalogGameItem {
+  id: string;
+  brandId: string;
+  brandSlug: string;
+  brandName: string;
+  mechanic: 'MULTIPLE_CHOICE' | 'TRUE_FALSE';
+  version: string;
+  theme: BrandTheme;
+  playedInCurrentPeriod: boolean;
+  sessionsToday: number;
+  maxSessionsPerDay: number;
+}
+
+export interface GamesCatalogResponse {
+  countryCode: string;
+  locale: string;
+  terms: Record<string, string>;
+  pendingBrands: { brandId: string; brandSlug: string; brandName: string }[];
+  games: CatalogGameItem[];
+}
+
+export interface StartedGameSessionResponse {
+  session: {
+    id: string;
+    token: string;
+    expiresAt: string;
+  };
+  game: {
+    id: string;
+    mechanic: 'MULTIPLE_CHOICE' | 'TRUE_FALSE';
+    version: string;
+  };
+  questions: PublicQuestion[];
+  theme: BrandTheme & { brandName: string };
+  locale: string;
+  terms: Record<string, string>;
+  limits: {
+    secondsPerQuestion: number;
+    totalSeconds: number;
+  };
+}
+
+export interface GameFinishResponse {
+  score: number;
+  correct: number;
+  total: number;
+  dailyCapReached: boolean;
+  rankPosition?: number;
+}

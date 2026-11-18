@@ -20,6 +20,20 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
+    },
+    "test:int": {
+      "dependsOn": ["^build"],
+      "cache": false
     }
-  }
+  },
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "REDIS_URL",
+    "TEST_DATABASE_URL",
+    "TEST_REDIS_URL",
+    "DOCUMENT_HASH_SECRET",
+    "SESSION_TOKEN_SECRET",
+    "AUTH_TOKEN_SECRET",
+    "SWC_NATIVE_BINDING_CACHE"
+  ]
 }

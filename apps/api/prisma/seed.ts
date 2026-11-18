@@ -8,6 +8,7 @@ import {
   COUNTRY_CODES,
   COUNTRY_DEFAULTS,
   DEFAULT_POINTS_RULES,
+  normalizeDocument,
   questionSchema,
   rankingPeriodBounds,
   type CountryCode,
@@ -28,7 +29,8 @@ const prisma = new PrismaClient();
 
 const secret = process.env.DOCUMENT_HASH_SECRET;
 if (!secret) throw new Error('Falta DOCUMENT_HASH_SECRET (copia .env.example a .env)');
-const hashDocument = (doc: string) => createHmac('sha256', secret).update(doc).digest('hex');
+const hashDocument = (doc: string) =>
+  createHmac('sha256', secret).update(normalizeDocument(doc)).digest('hex');
 
 const PILOT: CountryCode = 'PE';
 
@@ -39,7 +41,14 @@ async function seedCountries() {
     const country = await prisma.country.upsert({
       where: { code },
       update: {},
-      create: { id: uuidv7(), code, name: d.name, locale: d.locale, timezone: d.timezone },
+      create: {
+        id: uuidv7(),
+        code,
+        name: d.name,
+        locale: d.locale,
+        timezone: d.timezone,
+        phonePrefix: d.phonePrefix,
+      },
     });
     ids[code] = country.id;
 
@@ -100,25 +109,56 @@ async function seedBrands(countryIds: Record<CountryCode, string>) {
     }
 
     const existing = await prisma.question.count({ where: { brandId: brand.id } });
-    if (existing > 0) continue;
+    if (existing === 0) {
+      // Marcas multipaís: preguntas compartidas (countryId nulo, ADR-010).
+      // Marcas de un solo país: preguntas de ese país.
+      const countryId = b.countries.length === 1 ? countryIds[b.countries[0]!] : null;
+      const questions = generateBrandQuestions(index, b.name).map((q) => questionSchema.parse(q));
+      await prisma.question.createMany({
+        data: questions.map((q) => ({
+          id: uuidv7(),
+          brandId: brand.id,
+          countryId,
+          type: q.type,
+          prompt: q.prompt,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          locale: 'es',
+          status: 'PUBLISHED' as const,
+        })),
+      });
+    }
 
-    // Marcas multipaís: preguntas compartidas (countryId nulo, ADR-010).
-    // Marcas de un solo país: preguntas de ese país.
-    const countryId = b.countries.length === 1 ? countryIds[b.countries[0]!] : null;
-    const questions = generateBrandQuestions(index, b.name).map((q) => questionSchema.parse(q));
-    await prisma.question.createMany({
-      data: questions.map((q) => ({
-        id: uuidv7(),
-        brandId: brand.id,
-        countryId,
-        type: q.type,
-        prompt: q.prompt,
-        options: q.options,
-        correctAnswer: q.correctAnswer,
-        locale: 'es',
-        status: 'PUBLISHED' as const,
-      })),
+    const sampleQuestions = await prisma.question.findMany({
+      where: { brandId: brand.id, status: 'PUBLISHED' },
+      orderBy: { createdAt: 'asc' },
+      take: 5,
+      select: { id: true },
     });
+    const testQuestionIds = sampleQuestions.map((q) => q.id);
+    if (testQuestionIds.length > 0) {
+      for (const code of b.countries) {
+        const countryId = countryIds[code];
+        await prisma.knowledgeTest.upsert({
+          where: {
+            brandId_countryId_kind: {
+              brandId: brand.id,
+              countryId,
+              kind: 'INITIAL',
+            },
+          },
+          update: {},
+          create: {
+            id: uuidv7(),
+            brandId: brand.id,
+            countryId,
+            kind: 'INITIAL',
+            questionIds: testQuestionIds,
+            active: true,
+          },
+        });
+      }
+    }
   }
 }
 

@@ -1,0 +1,4 @@
+brandSlug,countryCode,type,prompt,options,correctAnswer,locale
+marca-a,PE,MULTIPLE_CHOICE,¿Cuál es la ubicación sugerida en mostrador para Marca A en campaña?,a:Junto a la caja|b:Bodega interna|c:Estante oculto|d:Pasillo trasero,a,es-PE
+marca-b,PE,TRUE_FALSE,Verdadero o falso: el empaque promocional de Marca B utiliza cartón reciclado.,TRUE:Verdadero|FALSE:Falso,TRUE,es-PE
+marca-i,PE,MULTIPLE_CHOICE,¿Cuántas presentaciones incluye la línea ficticia de Marca I?,a:2 presentaciones|b:4 presentaciones|c:10 presentaciones,c,es-PE

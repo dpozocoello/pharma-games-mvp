@@ -1,4 +1,7 @@
-/** Países soportados. Agregar un país = agregar su código aquí y su configuración en base de datos. */
+/**
+ * Países de las semillas y del piloto. Agregar un país NO requiere tocar esta lista: se da de alta
+ * desde el panel (`POST /admin/countries`); la lista solo alimenta las semillas de desarrollo.
+ */
 export const COUNTRY_CODES = ['CO', 'EC', 'PE'] as const;
 export type CountryCode = (typeof COUNTRY_CODES)[number];
 

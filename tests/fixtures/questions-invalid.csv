@@ -1,0 +1,6 @@
+brandSlug,countryCode,type,prompt,options,correctAnswer,locale
+marca-a,PE,MULTIPLE_CHOICE,¿Pregunta válida de control para Marca A?,a:Opción A|b:Opción B|c:Opción C,a,es-PE
+marca-inexistente,PE,MULTIPLE_CHOICE,¿Pregunta con marca que no existe?,a:Uno|b:Dos|c:Tres,a,es-PE
+marca-a,PE,MULTIPLE_CHOICE,¿Pregunta cuya respuesta correcta no está en opciones?,a:Uno|b:Dos|c:Tres,z,es-PE
+marca-a,PE,TRUE_FALSE,¿Pregunta verdadero/falso con opciones mal formadas?,SI:Sí|NO:No,SI,es-PE
+marca-d,PE,MULTIPLE_CHOICE,¿Pregunta de Marca D (exclusiva de CO) cargada en PE?,a:Uno|b:Dos|c:Tres,a,es-PE

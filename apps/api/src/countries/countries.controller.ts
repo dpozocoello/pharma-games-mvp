@@ -1,19 +1,18 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import type { PublicCountry } from '@pharma/shared';
-import { PrismaService } from '../infra/prisma.service';
+import { Public } from '../auth/principal';
+import { CountryConfigService } from './country-config.service';
 
+@ApiTags('países')
 @Controller('countries')
 export class CountriesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly countries: CountryConfigService) {}
 
-  /** Público: países activos para la pantalla de selección. */
+  /** Público: países activos para la pantalla de selección (con prefijo telefónico). */
+  @Public()
   @Get()
-  async list(): Promise<PublicCountry[]> {
-    const rows = await this.prisma.country.findMany({
-      where: { active: true },
-      select: { code: true, name: true, locale: true },
-      orderBy: { name: 'asc' },
-    });
-    return rows as PublicCountry[];
+  list(): Promise<PublicCountry[]> {
+    return this.countries.listPublic();
   }
 }

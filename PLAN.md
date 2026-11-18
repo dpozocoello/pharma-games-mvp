@@ -1,48 +1,21 @@
-# PLAN — Iteración 0: Base
+# PLAN — Iteración 6: Medición, carga y endurecimiento (módulo 12 parcial + no funcionales)
 
-Estado: **terminada** · Fecha: 2026-11-17 · Siguiente: Iteración 1 (entrada, ingreso, países y roles)
+Estado: **terminada ✅ (Iteraciones 0 a 6 completas)** · Fecha: 2026-11-18 · Anterior: Iteración 5 (terminada ✅)
+
+## Criterios de aceptación (CLAUDE.md §12)
+
+- [x] Test inicial por marca (`GET /tests/pending`, `POST /tests/:id/submit`) y eventos de uso (`UsageEvent`); reporte de participación por país, farmacia y marca en CSV (`GET /admin/reports/participation.csv`).
+- [x] Informe k6 en `docs/informe-carga.md` que cumple los umbrales de la sección 11 (o explica la brecha y la corrección).
+- [x] Revisión de seguridad documentada, respaldo y restauración probados, `docs/operacion.md` completo.
 
 ## Tareas
 
-| #   | Tarea                                                                                             | Estado |
-| --- | ------------------------------------------------------------------------------------------------- | ------ |
-| 1   | Repositorio git propio, pnpm 9                                                                    | ✅     |
-| 2   | Monorepo pnpm workspaces + Turborepo, TypeScript estricto, ESLint (flat config), Prettier         | ✅     |
-| 3   | `packages/shared`: esquemas Zod, constantes, i18n base, utilidades de zona horaria                | ✅     |
-| 4   | `apps/api`: NestJS + pino + `/health` `/ready` + Prisma (esquema §7), migración inicial, semillas | ✅     |
-| 5   | `apps/pwa`, `apps/admin`: Vite + React 18 (selección de país en la PWA)                           | ✅     |
-| 6   | `packages/game-sdk`, `game-trivia`, `game-true-false`: tipos del contrato y moldes vacíos         | ✅     |
-| 7   | `infra/docker-compose.yml` (PostgreSQL 16, Redis 7), `.env.example`                               | ✅     |
-| 8   | CI GitHub Actions: formato, lint, tipos, pruebas, build, auditoría, migración + semillas (×2)     | ✅     |
-| 9   | README y `docs/` (arquitectura, decisiones, operación; contrato y CSV como esqueleto)             | ✅     |
-| 10  | Verificación local: install, lint, typecheck, test, build, migración, semillas, `pnpm dev`        | ✅     |
-
-## Verificado localmente
-
-- `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm format:check`: OK.
-- `pnpm test`: 34 pruebas (shared 16, api 15, pwa 3).
-- Migración inicial aplicada en PostgreSQL 16 (Docker); semillas ejecutadas dos veces con el mismo resultado
-  (3 países, 9 marcas, 14 marca-país, 540 preguntas, 28 juegos, 9 farmacias, 64 usuarios).
-- Trigger de inmutabilidad: `UPDATE`, `DELETE` y `TRUNCATE` sobre `PointsLedger` rechazados.
-- `pnpm dev`: `/health` y `/ready` OK; la PWA (5173) lista los 3 países vía proxy; admin (5174) responde.
-- JS inicial de la PWA: ~72 KB gzip (presupuesto 300 KB).
-
-## Pendiente / no verificado
-
-- CI no se ha ejecutado en GitHub (el repositorio aún no tiene remoto).
-- Pruebas E2E con Playwright y presupuesto de peso en CI: desde Iteraciones 1 y 3.
-- OpenAPI (`/api/docs`): se agrega en la Iteración 1 junto con los primeros endpoints autenticados.
-- Dependencias: quedan 2 avisos moderados de `pnpm audit`; NestJS 12 (ESM) y Prisma 7 pendientes de evaluar (ADR-016).
-- ESLint 9 figura como obsoleto frente a ESLint 10; migrar cuando `typescript-eslint` lo soporte de forma estable.
-- Prisma avisa que `package.json#prisma` se elimina en Prisma 7; migrar a `prisma.config.ts` al actualizar.
-
-## Riesgos
-
-- El JS inicial de la PWA crecerá con el router, la autenticación y los juegos: vigilar desde la Iteración 3.
-- Proveedores de WhatsApp/SMS sin definir: se aíslan tras `MessagingProvider` (Iteración 1).
-
-## Preguntas abiertas (no bloquean)
-
-- Proveedor de nube final (AWS o GCP) y región → Terraform de referencia en la Iteración 6.
-- Proveedor SMS de respaldo concreto → Iteración 1.
-- Texto legal de consentimiento por país: la semilla trae un texto de ejemplo marcado "pendiente de revisión legal".
+| #   | Tarea                                                                                                                                                                                                                                                                                                                                               | Estado |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | `packages/shared`: esquemas Zod y tipos para Medición (`PendingKnowledgeTest`, `SubmitKnowledgeTestRequest`, `SubmitKnowledgeTestResponse`, `UsageEventInput`)                                                                                                                                                                                      | ✅     |
+| 2   | `apps/api/prisma/seed.ts`: sembrar `KnowledgeTest` (`kind = 'INITIAL'`) de 5 preguntas publicadas por cada combinación marca-país (idempotente)                                                                                                                                                                                                     | ✅     |
+| 3   | `MeasurementService` y `MeasurementController`: `GET /tests/pending` (sin exponer `correctAnswer`), `POST /tests/:id/submit` (cálculo en servidor + `TestResult` único por usuario y test + `UsageEvent`), `POST /events` (sin datos personales) y `GET /admin/reports/participation.csv` (por país, farmacia y marca, auditado en `AdminAuditLog`) | ✅     |
+| 4   | PWA (`apps/pwa`) y Admin (`apps/admin`): flujo de Test inicial de conocimiento por marca en la PWA y botón de exportación de `participation.csv` en el panel de administración                                                                                                                                                                      | ✅     |
+| 5   | Pruebas automatizadas (`apps/api/test/iteration6.test.ts`): verificar `GET /tests/pending` (sin `correctAnswer`), `POST /tests/:id/submit` (idempotente y calculado en servidor), registro de `UsageEvent` sin PII y exportación de `participation.csv` con auditoría                                                                               | ✅     |
+| 6   | Scripts de carga k6 en `tests/load/peak.k6.js` (1.125 req/s: 70 % juego, 20 % ranking/perfil, 10 % navegación; `p(95)<300`, `rate<0.005`) y `tests/load/period-close.k6.js` ("cierre de periodo"), e informe en `docs/informe-carga.md`                                                                                                             | ✅     |
+| 7   | Endurecimiento, revisión de seguridad OWASP ASVS L2, procedimiento probado de respaldo y restauración de PostgreSQL, derechos ARCO (Ley 1581 CO, LOPDP EC, Ley 29733 PE) y actualización completa de `docs/operacion.md` y `README.md`                                                                                                              | ✅     |

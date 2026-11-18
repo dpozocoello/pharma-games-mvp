@@ -1,0 +1,5 @@
+countryCode,pharmacyCode,pharmacyName,city,phone,document,displayName,role
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,+51900200001,PECSV200001,Valeria Rojas,CLERK
+PE,PE-FAR-001,Farmacia Demo 1 Lima,Lima,900200002,PECSV200002,Diego Huamán,CLERK
+PE,PE-FAR-002,Farmacia Demo 2 Arequipa,Arequipa,+51900200003,PECSV200003,Claudia Paredes,PHARMACY_MANAGER
+PE,PE-FAR-004,Botica Nueva Miraflores,Lima,+51900200004,PECSV200004,Jorge Salazar,CLERK

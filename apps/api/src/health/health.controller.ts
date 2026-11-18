@@ -1,8 +1,12 @@
 import { Controller, Get, HttpCode, ServiceUnavailableException } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/principal';
 import { PrismaService } from '../infra/prisma.service';
 import { RedisService } from '../infra/redis.service';
 
 /** Sondas fuera del prefijo /api/v1: `/health` (vivo) y `/ready` (listo para tráfico). */
+@ApiTags('salud')
+@Public()
 @Controller()
 export class HealthController {
   constructor(
