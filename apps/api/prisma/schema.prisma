@@ -1,0 +1,593 @@
+// Modelo de datos del MVP (CLAUDE.md §7).
+// - Los IDs son UUID v7 generados en la aplicación (ADR-004).
+// - Toda entidad de negocio lleva countryId.
+// - PointsLedger y AdminAuditLog son inmutables (trigger en la migración inicial, ADR-006).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  COUNTRY_ADMIN
+  CONTENT_EDITOR
+  PHARMACY_MANAGER
+  CLERK
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+}
+
+enum QuestionStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum GameMechanic {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+}
+
+enum GameStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  FINISHED
+  EXPIRED
+}
+
+enum LedgerReason {
+  GAME
+  BONUS
+  REVERSAL
+}
+
+enum AnomalyStatus {
+  OPEN
+  CONFIRMED
+  DISMISSED
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSING
+  CLOSED
+}
+
+enum RankingScope {
+  INDIVIDUAL
+  PHARMACY
+  COUNTRY
+}
+
+enum TestKind {
+  INITIAL
+  FINAL
+}
+
+enum ImportKind {
+  USERS
+  QUESTIONS
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ───────────────────────────── Países ─────────────────────────────
+
+model Country {
+  id        String   @id @db.Uuid
+  code      String   @unique @db.VarChar(2)
+  name      String
+  locale    String
+  timezone  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  config          CountryConfig?
+  consentVersions ConsentVersion[]
+  chains          Chain[]
+  pharmacies      Pharmacy[]
+  users           User[]
+  brandCountries  BrandCountry[]
+  questions       Question[]
+  termOverrides   CountryTermOverride[]
+  games           Game[]
+  sessions        GameSession[]
+  ledger          PointsLedger[]
+  periods         RankingPeriod[]
+  knowledgeTests  KnowledgeTest[]
+  usageEvents     UsageEvent[]
+  importJobs      ImportJob[]
+  anomalies       AnomalyAlert[]
+}
+
+model CountryConfig {
+  id                  String   @id @db.Uuid
+  countryId           String   @unique @db.Uuid
+  /// Diccionario de términos locales (validado con termsSchema)
+  terms               Json
+  /// Reglas de puntos (validado con pointsRulesSchema)
+  pointsRules         Json
+  rankingPeriodMonths Int      @default(1)
+  consentVersionId    String?  @unique @db.Uuid
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  country        Country         @relation(fields: [countryId], references: [id])
+  consentVersion ConsentVersion? @relation("CurrentConsent", fields: [consentVersionId], references: [id])
+}
+
+model ConsentVersion {
+  id          String   @id @db.Uuid
+  countryId   String   @db.Uuid
+  version     Int
+  /// Finalidad declarada y texto legal
+  text        String
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  country      Country        @relation(fields: [countryId], references: [id])
+  currentFor   CountryConfig? @relation("CurrentConsent")
+  userConsents UserConsent[]
+
+  @@unique([countryId, version])
+}
+
+model UserConsent {
+  id               String   @id @db.Uuid
+  userId           String   @db.Uuid
+  consentVersionId String   @db.Uuid
+  acceptedAt       DateTime @default(now())
+  /// IP truncada (/24 en IPv4, /48 en IPv6)
+  ipTruncated      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id])
+  consentVersion ConsentVersion @relation(fields: [consentVersionId], references: [id])
+
+  @@unique([userId, consentVersionId])
+}
+
+// ───────────────────────── Farmacias y usuarios ─────────────────────────
+
+model Chain {
+  id        String   @id @db.Uuid
+  countryId String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  country    Country    @relation(fields: [countryId], references: [id])
+  pharmacies Pharmacy[]
+
+  @@unique([countryId, name])
+}
+
+model Pharmacy {
+  id           String   @id @db.Uuid
+  countryId    String   @db.Uuid
+  chainId      String?  @db.Uuid
+  externalCode String?
+  name         String
+  city         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  country     Country              @relation(fields: [countryId], references: [id])
+  chain       Chain?               @relation(fields: [chainId], references: [id])
+  assignments PharmacyAssignment[]
+
+  @@unique([countryId, externalCode])
+  @@index([countryId, active])
+}
+
+model User {
+  id           String     @id @db.Uuid
+  /// Nulo solo para SUPER_ADMIN (alcance global, ADR-009)
+  countryId    String?    @db.Uuid
+  phoneE164    String     @unique
+  /// HMAC-SHA256 del documento; nunca se guarda ni se registra en claro
+  documentHash String?
+  displayName  String
+  role         Role       @default(CLERK)
+  status       UserStatus @default(ACTIVE)
+  /// Fecha en que el país quedó fijado (primer ingreso)
+  countryLockedAt DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  country     Country?             @relation(fields: [countryId], references: [id])
+  assignments PharmacyAssignment[]
+  consents    UserConsent[]
+  sessions    GameSession[]
+  ledger      PointsLedger[]       @relation("LedgerUser")
+  testResults TestResult[]
+
+  @@unique([countryId, documentHash])
+  @@index([countryId, role, status])
+}
+
+model PharmacyAssignment {
+  id         String    @id @db.Uuid
+  userId     String    @db.Uuid
+  pharmacyId String    @db.Uuid
+  from       DateTime  @default(now())
+  /// Nulo = asignación vigente
+  to         DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id])
+  pharmacy Pharmacy @relation(fields: [pharmacyId], references: [id])
+
+  @@index([userId, to])
+  @@index([pharmacyId, to])
+}
+
+// ───────────────────────────── Contenido ─────────────────────────────
+
+model Brand {
+  id        String   @id @db.Uuid
+  slug      String   @unique
+  name      String
+  /// Tema por defecto (brandThemeSchema)
+  theme     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  countries  BrandCountry[]
+  questions  Question[]
+  games      Game[]
+  ledger     PointsLedger[]
+  tests      KnowledgeTest[]
+}
+
+model BrandCountry {
+  id        String   @id @db.Uuid
+  brandId   String   @db.Uuid
+  countryId String   @db.Uuid
+  active    Boolean  @default(true)
+  /// Tema que sobrescribe el de la marca en este país (opcional, ADR-008)
+  theme     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand   Brand   @relation(fields: [brandId], references: [id])
+  country Country @relation(fields: [countryId], references: [id])
+
+  @@unique([brandId, countryId])
+  @@index([countryId, active])
+}
+
+model Question {
+  id            String         @id @db.Uuid
+  brandId       String         @db.Uuid
+  /// Nulo = pregunta compartida por todos los países donde está la marca (ADR-010);
+  /// se adapta por país con CountryTermOverride.
+  countryId     String?        @db.Uuid
+  type          QuestionType
+  prompt        String
+  /// [{ id, text }]
+  options       Json
+  /// NUNCA se expone al cliente
+  correctAnswer String
+  locale        String
+  status        QuestionStatus @default(DRAFT)
+  version       Int            @default(1)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  brand         Brand                 @relation(fields: [brandId], references: [id])
+  country       Country?              @relation(fields: [countryId], references: [id])
+  termOverrides CountryTermOverride[]
+  answers       SessionAnswer[]
+
+  @@index([brandId, countryId, status])
+}
+
+model CountryTermOverride {
+  id         String   @id @db.Uuid
+  questionId String   @db.Uuid
+  countryId  String   @db.Uuid
+  prompt     String?
+  options    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  question Question @relation(fields: [questionId], references: [id])
+  country  Country  @relation(fields: [countryId], references: [id])
+
+  @@unique([questionId, countryId])
+}
+
+// ───────────────────────────── Juego ─────────────────────────────
+
+model Game {
+  id        String       @id @db.Uuid
+  brandId   String       @db.Uuid
+  countryId String       @db.Uuid
+  mechanic  GameMechanic
+  version   String       @default("1.0.0")
+  status    GameStatus   @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  brand    Brand         @relation(fields: [brandId], references: [id])
+  country  Country       @relation(fields: [countryId], references: [id])
+  sessions GameSession[]
+
+  @@unique([brandId, countryId, mechanic])
+  @@index([countryId, status])
+}
+
+model GameSession {
+  id          String        @id @db.Uuid
+  userId      String        @db.Uuid
+  gameId      String        @db.Uuid
+  countryId   String        @db.Uuid
+  brandId     String        @db.Uuid
+  questionIds String[]      @db.Uuid
+  seed        String
+  startedAt   DateTime      @default(now())
+  expiresAt   DateTime
+  finishedAt  DateTime?
+  score       Int?
+  status      SessionStatus @default(IN_PROGRESS)
+  /// Marcas de anomalía, tope alcanzado, etc.
+  flags       String[]      @default([])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user      User            @relation(fields: [userId], references: [id])
+  game      Game            @relation(fields: [gameId], references: [id])
+  country   Country         @relation(fields: [countryId], references: [id])
+  answers   SessionAnswer[]
+  ledger    PointsLedger[]
+  anomalies AnomalyAlert[]
+
+  @@index([userId, startedAt])
+  @@index([countryId, startedAt])
+}
+
+model SessionAnswer {
+  id              String   @id @db.Uuid
+  sessionId       String   @db.Uuid
+  questionId      String   @db.Uuid
+  answer          String
+  clientElapsedMs Int
+  serverElapsedMs Int?
+  correct         Boolean
+  points          Int
+  receivedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  session  GameSession @relation(fields: [sessionId], references: [id])
+  question Question    @relation(fields: [questionId], references: [id])
+
+  @@unique([sessionId, questionId])
+}
+
+// ─────────────────────────── Puntos y juego justo ───────────────────────────
+
+/// INMUTABLE: un trigger impide UPDATE y DELETE. Las anulaciones son movimientos REVERSAL.
+model PointsLedger {
+  id         String       @id @db.Uuid
+  userId     String       @db.Uuid
+  countryId  String       @db.Uuid
+  brandId    String       @db.Uuid
+  sessionId  String?      @db.Uuid
+  delta      Int
+  reason     LedgerReason
+  /// Puntos en revisión por anomalía: no cuentan para ganadores
+  onHold     Boolean      @default(false)
+  /// Movimiento al que anula (solo REVERSAL)
+  reversesId String?      @unique @db.Uuid
+  createdBy  String
+  /// "Día local" del país (YYYY-MM-DD) para topes y reportes
+  localDay   String       @db.VarChar(10)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @default(now())
+
+  user     User          @relation("LedgerUser", fields: [userId], references: [id])
+  country  Country       @relation(fields: [countryId], references: [id])
+  brand    Brand         @relation(fields: [brandId], references: [id])
+  session  GameSession?  @relation(fields: [sessionId], references: [id])
+  reverses PointsLedger? @relation("Reversal", fields: [reversesId], references: [id])
+  reversal PointsLedger? @relation("Reversal")
+
+  @@index([countryId, createdAt])
+  @@index([userId, localDay])
+  @@index([userId, brandId, localDay])
+}
+
+model AnomalyAlert {
+  id         String        @id @db.Uuid
+  sessionId  String        @db.Uuid
+  countryId  String        @db.Uuid
+  rule       String
+  details    Json
+  status     AnomalyStatus @default(OPEN)
+  reviewedBy String?       @db.Uuid
+  reviewedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  session GameSession @relation(fields: [sessionId], references: [id])
+  country Country     @relation(fields: [countryId], references: [id])
+
+  @@index([countryId, status])
+}
+
+// ───────────────────────────── Rankings ─────────────────────────────
+
+model RankingPeriod {
+  id        String       @id @db.Uuid
+  countryId String       @db.Uuid
+  startsAt  DateTime
+  endsAt    DateTime
+  status    PeriodStatus @default(OPEN)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  country   Country           @relation(fields: [countryId], references: [id])
+  snapshots RankingSnapshot[]
+  winners   Winner[]
+
+  @@index([countryId, status])
+  @@index([countryId, startsAt])
+}
+
+model RankingSnapshot {
+  id           String       @id @db.Uuid
+  periodId     String       @db.Uuid
+  scope        RankingScope
+  entityId     String       @db.Uuid
+  /// Día local de la foto (YYYY-MM-DD)
+  snapshotDay  String       @db.VarChar(10)
+  points       Float
+  position     Int
+  activeClerks Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  period RankingPeriod @relation(fields: [periodId], references: [id])
+
+  @@unique([periodId, scope, snapshotDay, entityId])
+  @@index([periodId, scope, snapshotDay, position])
+}
+
+model Winner {
+  id         String       @id @db.Uuid
+  periodId   String       @db.Uuid
+  scope      RankingScope
+  entityId   String       @db.Uuid
+  position   Int
+  exportedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  period RankingPeriod @relation(fields: [periodId], references: [id])
+
+  @@unique([periodId, scope, position])
+}
+
+// ───────────────────────────── Medición ─────────────────────────────
+
+model KnowledgeTest {
+  id          String   @id @db.Uuid
+  brandId     String   @db.Uuid
+  countryId   String   @db.Uuid
+  kind        TestKind
+  questionIds String[] @db.Uuid
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  brand   Brand        @relation(fields: [brandId], references: [id])
+  country Country      @relation(fields: [countryId], references: [id])
+  results TestResult[]
+
+  @@unique([brandId, countryId, kind])
+}
+
+model TestResult {
+  id          String   @id @db.Uuid
+  testId      String   @db.Uuid
+  userId      String   @db.Uuid
+  score       Int
+  total       Int
+  completedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  test KnowledgeTest @relation(fields: [testId], references: [id])
+  user User          @relation(fields: [userId], references: [id])
+
+  @@unique([testId, userId])
+}
+
+model UsageEvent {
+  id         String   @id @db.Uuid
+  type       String
+  userId     String?  @db.Uuid
+  countryId  String   @db.Uuid
+  brandId    String?  @db.Uuid
+  /// Sin datos personales
+  payload    Json?
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  country Country @relation(fields: [countryId], references: [id])
+
+  @@index([countryId, type, occurredAt])
+}
+
+// ─────────────────────────── Administración ───────────────────────────
+
+/// INMUTABLE: un trigger impide UPDATE y DELETE.
+model AdminAuditLog {
+  id        String   @id @db.Uuid
+  actorId   String   @db.Uuid
+  countryId String?  @db.Uuid
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  @@index([countryId, createdAt])
+  @@index([entity, entityId])
+}
+
+model ImportJob {
+  id          String       @id @db.Uuid
+  countryId   String       @db.Uuid
+  kind        ImportKind
+  fileName    String
+  status      ImportStatus @default(PENDING)
+  totalRows   Int          @default(0)
+  validRows   Int          @default(0)
+  /// [{ row, field, message }]
+  errors      Json         @default("[]")
+  createdBy   String       @db.Uuid
+  finishedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  country Country @relation(fields: [countryId], references: [id])
+
+  @@index([countryId, createdAt])
+}
