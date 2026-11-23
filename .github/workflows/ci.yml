@@ -37,6 +37,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       DOCUMENT_HASH_SECRET: ci-only-document-hash-secret-0000
       SESSION_TOKEN_SECRET: ci-only-session-token-secret-00000
+      AUTH_TOKEN_SECRET: ci-only-auth-token-secret-000000000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,6 +53,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Presupuesto de peso (PWA <= 300 KB gzip de JS inicial, juegos <= 1,5 MB)
+        run: pnpm size
+      - name: Integración contra PostgreSQL y Redis reales (base pharma_test, Redis db 1)
+        run: pnpm test:int
       - name: Migración y semillas contra PostgreSQL real
         working-directory: apps/api
         run: |

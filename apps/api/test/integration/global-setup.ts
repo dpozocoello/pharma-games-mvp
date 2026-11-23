@@ -32,6 +32,11 @@ export default async function setup({ provide }: GlobalSetupContext) {
   try {
     const stale = await prisma.country.findMany({ where: { code: { startsWith: 'Z' } } });
     for (const c of stale) {
+      // Primero lo que referencia al país: usuarios de prueba y sus aceptaciones y sesiones.
+      const users = { countryId: c.id };
+      await prisma.userConsent.deleteMany({ where: { consentVersion: { countryId: c.id } } });
+      await prisma.refreshToken.deleteMany({ where: { user: users } });
+      await prisma.user.deleteMany({ where: users });
       await prisma.countryConfig.updateMany({
         where: { countryId: c.id },
         data: { consentVersionId: null },

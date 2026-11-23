@@ -63,6 +63,15 @@ describe('Iteración 4 — Puntos inmutables, topes diarios por zona horaria y d
 
   const prismaMock: any = {
     $transaction: async (fn: (tx: any) => Promise<any>) => fn(prismaMock),
+    // Bloqueos de PostgreSQL: `FOR SHARE` devuelve el estado de la partida; el advisory lock no hace nada.
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (strings.join('?').includes('FOR SHARE')) {
+        const s = sessionsStore.find((x) => x.id === values[0]);
+        return s ? [{ status: s.status }] : [];
+      }
+      return [{ '?column?': 1 }];
+    }),
+    usageEvent: { create: vi.fn(async ({ data }: any) => data) },
     country: {
       findUnique: vi.fn(async () => ({
         id: PE_ID,
@@ -140,8 +149,25 @@ describe('Iteración 4 — Puntos inmutables, topes diarios por zona horaria y d
         sessionsStore[idx] = { ...sessionsStore[idx], ...data };
         return sessionsStore[idx];
       }),
+      // Actualización condicional (`where.status`), como la usa finishSession para reclamar la partida.
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const idx = sessionsStore.findIndex(
+          (x) => x.id === where.id && (!where.status || x.status === where.status),
+        );
+        if (idx < 0) return { count: 0 };
+        sessionsStore[idx] = { ...sessionsStore[idx], ...data };
+        return { count: 1 };
+      }),
+      findUniqueOrThrow: vi.fn(async ({ where }: any) => {
+        const s = sessionsStore.find((x) => x.id === where.id);
+        if (!s) throw new Error('No encontrado');
+        return { ...s, answers: answersStore.filter((a) => a.sessionId === s.id) };
+      }),
     },
     sessionAnswer: {
+      findMany: vi.fn(async ({ where }: any) =>
+        answersStore.filter((a) => a.sessionId === where.sessionId),
+      ),
       upsert: vi.fn(async ({ where, create }: any) => {
         const { sessionId, questionId } = where.sessionId_questionId;
         const existing = answersStore.find(

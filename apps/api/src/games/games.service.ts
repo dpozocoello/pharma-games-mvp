@@ -19,6 +19,7 @@ import {
   type FinishSessionInput,
   type GameFinishResponse,
   type GamesCatalogResponse,
+  type PointsRules,
   type PublicQuestion,
   type QuestionOption,
   type StartedGameSessionResponse,
@@ -443,6 +444,28 @@ export class GamesService {
     });
     const correctById = new Map(questions.map((q) => [q.id, q.correctAnswer]));
 
+    return this.prisma.$transaction(async (tx) => {
+      // Bloqueo compartido de la fila de la partida: un `finish` concurrente (que la actualiza)
+      // espera a este lote, o este lote ve la partida ya terminada. Así ninguna respuesta entra
+      // después del cálculo del puntaje.
+      const [locked] = await tx.$queryRaw<{ status: string }[]>`
+        SELECT "status"::text AS "status" FROM "GameSession" WHERE "id" = ${session.id}::uuid FOR SHARE`;
+      if (locked?.status === 'FINISHED') return { accepted: 0 };
+      if (locked?.status !== 'IN_PROGRESS') {
+        throw new AppError(HttpStatus.GONE, 'SESSION_EXPIRED', 'La sesión de juego venció.');
+      }
+      return this.insertAnswers(tx, session, input, correctById, rules, now);
+    });
+  }
+
+  private async insertAnswers(
+    tx: Prisma.TransactionClient,
+    session: { id: string; startedAt: Date; answers: { receivedAt: Date }[] },
+    input: SubmitSessionAnswersInput,
+    correctById: Map<string, string>,
+    rules: PointsRules,
+    now: Date,
+  ): Promise<{ accepted: number }> {
     let lastTimestamp = session.answers[0]?.receivedAt ?? session.startedAt;
     let accepted = 0;
 
@@ -454,7 +477,7 @@ export class GamesService {
 
       const points = calculateAnswerPoints(isCorrect, serverElapsedMs, rules);
 
-      await this.prisma.sessionAnswer.upsert({
+      await tx.sessionAnswer.upsert({
         where: {
           sessionId_questionId: {
             sessionId: session.id,
@@ -483,36 +506,38 @@ export class GamesService {
 
   // ───────────────────────────── Finalizar Partida (POST /sessions/:id/finish) ─────────────────────────────
 
+  /**
+   * Termina una partida y acredita sus puntos **una sola vez** (§9), aunque lleguen varios `finish`
+   * a la vez (reintentos del SDK con red irregular):
+   * 1. Un bloqueo transaccional por usuario (`pg_advisory_xact_lock`) serializa los cierres del
+   *    mismo dependiente, así los topes diarios se leen y se escriben sin carreras.
+   * 2. La partida se "reclama" con una actualización condicional `IN_PROGRESS → FINISHED`; solo la
+   *    solicitud que la gana calcula y acredita. Las demás devuelven el resultado ya guardado.
+   * 3. El índice único parcial `PointsLedger_sessionId_game_key` es la última barrera en la base.
+   */
   async finishSession(
     p: Principal,
     sessionId: string,
     input: FinishSessionInput,
   ): Promise<GameFinishResponse> {
     const tokenPayload = this.verifySessionToken(input.token, sessionId, p.userId);
-    const session = await this.prisma.gameSession.findUnique({
-      where: { id: sessionId },
-      include: { answers: true },
-    });
+    const session = await this.prisma.gameSession.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Sesión no encontrada');
     if (session.userId !== p.userId) {
       throw new ForbiddenException('Esta partida pertenece a otro usuario');
     }
 
     // Respuesta idempotente al reenviar finish sobre una sesión ya terminada (§9)
-    if (session.status === 'FINISHED') {
-      const correctCount = session.answers.filter((a) => a.correct).length;
-      return {
-        score: session.score ?? 0,
-        correct: correctCount,
-        total: session.questionIds.length,
-        dailyCapReached: session.flags.includes('DAILY_CAP_REACHED'),
-      };
-    }
+    if (session.status === 'FINISHED') return this.finishedResult(session.id);
 
     const now = new Date();
-    if (now.getTime() > tokenPayload.expiresAtMs || now > session.expiresAt) {
-      await this.prisma.gameSession.update({
-        where: { id: session.id },
+    if (
+      session.status === 'EXPIRED' ||
+      now.getTime() > tokenPayload.expiresAtMs ||
+      now > session.expiresAt
+    ) {
+      await this.prisma.gameSession.updateMany({
+        where: { id: session.id, status: 'IN_PROGRESS' },
         data: { status: 'EXPIRED' },
       });
       throw new AppError(HttpStatus.GONE, 'SESSION_EXPIRED', 'La sesión de juego venció.');
@@ -521,174 +546,198 @@ export class GamesService {
     const country = await this.countries.getById(session.countryId);
     if (!country) throw new NotFoundException('País no encontrado');
     const rules = country.pointsRules;
-
-    const rawScore = session.answers.reduce((acc, a) => acc + a.points, 0);
-    const correctCount = session.answers.filter((a) => a.correct).length;
     const todayStr = localDay(now, country.timezone);
 
-    // Calcular puntos ya acreditados hoy en el libro de puntos (respetando zona horaria local)
-    const todayEntries = await this.prisma.pointsLedger.findMany({
-      where: {
-        userId: p.userId,
-        countryId: country.id,
-        localDay: todayStr,
-      },
-      select: { brandId: true, delta: true },
-    });
+    let outcome: { response: GameFinishResponse; allowedPoints: number } | null;
+    try {
+      outcome = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`finish:${p.userId}`}, 0))`;
 
-    const userTodayPoints = todayEntries.reduce((acc, e) => acc + e.delta, 0);
-    const brandTodayPoints = todayEntries
-      .filter((e) => e.brandId === session.brandId)
-      .reduce((acc, e) => acc + e.delta, 0);
+        const claimed = await tx.gameSession.updateMany({
+          where: { id: session.id, status: 'IN_PROGRESS' },
+          data: { status: 'FINISHED', finishedAt: now },
+        });
+        if (claimed.count !== 1) return null; // Otra solicitud ya la terminó (o venció).
 
-    const { creditedPoints: allowedPoints, dailyCapReached } = applyDailyCaps(
-      rawScore,
-      userTodayPoints,
-      brandTodayPoints,
-      rules,
-    );
+        // Leídas dentro de la transacción y con el bloqueo: incluyen todo lo confirmado antes.
+        const answers = await tx.sessionAnswer.findMany({ where: { sessionId: session.id } });
+        const rawScore = answers.reduce((acc, a) => acc + a.points, 0);
+        const correctCount = answers.filter((a) => a.correct).length;
 
-    // Evaluar anomalías de juego justo (§9)
-    const oneHourAgo = new Date(now.getTime() - 3600_000);
-    const [sessionsInLastHour, recentFinishedSessions] = await Promise.all([
-      this.prisma.gameSession.count({
-        where: {
-          userId: p.userId,
-          startedAt: { gte: oneHourAgo },
-        },
-      }),
-      this.prisma.gameSession.findMany({
-        where: {
-          userId: p.userId,
-          status: 'FINISHED',
-          id: { not: session.id },
-        },
-        orderBy: { finishedAt: 'desc' },
-        take: rules.anomaly.perfectStreakSessions,
-        include: { answers: { select: { correct: true } } },
-      }),
-    ]);
+        const todayEntries = await tx.pointsLedger.findMany({
+          where: { userId: p.userId, countryId: country.id, localDay: todayStr },
+          select: { brandId: true, delta: true },
+        });
+        const userTodayPoints = todayEntries.reduce((acc, e) => acc + e.delta, 0);
+        const brandTodayPoints = todayEntries
+          .filter((e) => e.brandId === session.brandId)
+          .reduce((acc, e) => acc + e.delta, 0);
+        const { creditedPoints: allowedPoints, dailyCapReached } = applyDailyCaps(
+          rawScore,
+          userTodayPoints,
+          brandTodayPoints,
+          rules,
+        );
 
-    let priorConsecutivePerfect = 0;
-    for (const prev of recentFinishedSessions) {
-      const wasPerfect =
-        prev.questionIds.length > 0 &&
-        Array.isArray(prev.answers) &&
-        prev.answers.length === prev.questionIds.length &&
-        prev.answers.every((a: { correct: boolean }) => a.correct);
-      if (wasPerfect) priorConsecutivePerfect += 1;
-      else break;
-    }
+        // Evaluar anomalías de juego justo (§9)
+        const oneHourAgo = new Date(now.getTime() - 3600_000);
+        const [sessionsInLastHour, recentFinishedSessions] = await Promise.all([
+          tx.gameSession.count({ where: { userId: p.userId, startedAt: { gte: oneHourAgo } } }),
+          tx.gameSession.findMany({
+            where: { userId: p.userId, status: 'FINISHED', id: { not: session.id } },
+            orderBy: { finishedAt: 'desc' },
+            take: rules.anomaly.perfectStreakSessions,
+            include: { answers: { select: { correct: true } } },
+          }),
+        ]);
 
-    const totalClientElapsedMs = session.answers.reduce((acc, a) => acc + a.clientElapsedMs, 0);
-    const serverWallMs = Math.max(0, now.getTime() - session.startedAt.getTime());
-    const sessionDurationMs =
-      totalClientElapsedMs > 0
-        ? Math.min(totalClientElapsedMs, serverWallMs || totalClientElapsedMs)
-        : serverWallMs;
+        let priorConsecutivePerfect = 0;
+        for (const prev of recentFinishedSessions) {
+          const wasPerfect =
+            prev.questionIds.length > 0 &&
+            prev.answers.length === prev.questionIds.length &&
+            prev.answers.every((a) => a.correct);
+          if (wasPerfect) priorConsecutivePerfect += 1;
+          else break;
+        }
 
-    const detectedAnomalies = evaluateSessionAnomalies({
-      rules,
-      questionCount: session.questionIds.length,
-      answers: session.answers.map((a) => ({
-        questionId: a.questionId,
-        clientElapsedMs: a.clientElapsedMs,
-        correct: a.correct,
-      })),
-      sessionDurationMs,
-      priorConsecutivePerfectSessions: priorConsecutivePerfect,
-      sessionsInLastHour: Math.max(1, sessionsInLastHour),
-    });
+        const totalClientElapsedMs = answers.reduce((acc, a) => acc + a.clientElapsedMs, 0);
+        const serverWallMs = Math.max(0, now.getTime() - session.startedAt.getTime());
+        const sessionDurationMs =
+          totalClientElapsedMs > 0
+            ? Math.min(totalClientElapsedMs, serverWallMs || totalClientElapsedMs)
+            : serverWallMs;
 
-    const onHold = detectedAnomalies.length > 0;
-    const flags: string[] = [...session.flags];
-    if (dailyCapReached && !flags.includes('DAILY_CAP_REACHED')) {
-      flags.push('DAILY_CAP_REACHED');
-    }
-    for (const anom of detectedAnomalies) {
-      const flagName = `ANOMALY_${anom.rule}`;
-      if (!flags.includes(flagName)) flags.push(flagName);
-    }
+        const detectedAnomalies = evaluateSessionAnomalies({
+          rules,
+          questionCount: session.questionIds.length,
+          answers: answers.map((a) => ({
+            questionId: a.questionId,
+            clientElapsedMs: a.clientElapsedMs,
+            correct: a.correct,
+          })),
+          sessionDurationMs,
+          priorConsecutivePerfectSessions: priorConsecutivePerfect,
+          sessionsInLastHour: Math.max(1, sessionsInLastHour),
+        });
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.gameSession.update({
-        where: { id: session.id },
-        data: {
-          status: 'FINISHED',
-          finishedAt: now,
-          score: allowedPoints,
-          flags,
-        },
-      });
+        const onHold = detectedAnomalies.length > 0;
+        const flags: string[] = [...session.flags];
+        if (dailyCapReached && !flags.includes('DAILY_CAP_REACHED')) {
+          flags.push('DAILY_CAP_REACHED');
+        }
+        for (const anom of detectedAnomalies) {
+          const flagName = `ANOMALY_${anom.rule}`;
+          if (!flags.includes(flagName)) flags.push(flagName);
+        }
 
-      if (allowedPoints > 0) {
-        await tx.pointsLedger.create({
+        await tx.gameSession.update({
+          where: { id: session.id },
+          data: { score: allowedPoints, flags },
+        });
+
+        if (allowedPoints > 0) {
+          await tx.pointsLedger.create({
+            data: {
+              id: uuidv7(),
+              userId: p.userId,
+              countryId: country.id,
+              brandId: session.brandId,
+              sessionId: session.id,
+              delta: allowedPoints,
+              reason: 'GAME',
+              onHold,
+              createdBy: p.userId,
+              localDay: todayStr,
+            },
+          });
+        }
+
+        for (const anom of detectedAnomalies) {
+          await tx.anomalyAlert.create({
+            data: {
+              id: uuidv7(),
+              sessionId: session.id,
+              countryId: country.id,
+              rule: anom.rule,
+              details: anom.details as unknown as Prisma.InputJsonValue,
+              status: 'OPEN',
+            },
+          });
+        }
+
+        await tx.usageEvent.create({
           data: {
             id: uuidv7(),
+            type: 'game.session_finished',
             userId: p.userId,
             countryId: country.id,
             brandId: session.brandId,
-            sessionId: session.id,
-            delta: allowedPoints,
-            reason: 'GAME',
-            onHold,
-            createdBy: p.userId,
-            localDay: todayStr,
+            payload: {
+              sessionId: session.id,
+              gameId: session.gameId,
+              score: allowedPoints,
+              correct: correctCount,
+              total: session.questionIds.length,
+              onHold,
+            },
+            occurredAt: now,
           },
         });
-      }
 
-      for (const anom of detectedAnomalies) {
-        await tx.anomalyAlert.create({
-          data: {
-            id: uuidv7(),
-            sessionId: session.id,
-            countryId: country.id,
-            rule: anom.rule,
-            details: anom.details as unknown as Prisma.InputJsonValue,
-            status: 'OPEN',
-          },
-        });
-      }
-
-      await tx.usageEvent?.create?.({
-        data: {
-          id: uuidv7(),
-          type: 'game.session_finished',
-          userId: p.userId,
-          countryId: country.id,
-          brandId: session.brandId,
-          payload: {
-            sessionId: session.id,
-            gameId: session.gameId,
+        return {
+          allowedPoints,
+          response: {
             score: allowedPoints,
             correct: correctCount,
             total: session.questionIds.length,
-            onHold,
+            dailyCapReached,
           },
-          occurredAt: now,
-        },
+        };
       });
-    });
+    } catch (e) {
+      // Última barrera: el índice único rechazó un segundo GAME para esta partida.
+      if (isUniqueViolation(e)) outcome = null;
+      else throw e;
+    }
 
-    if (allowedPoints > 0) {
+    if (!outcome) return this.finishedResult(session.id);
+
+    if (outcome.allowedPoints > 0) {
+      const pts = outcome.allowedPoints;
       const userCapKey = `cap:user:${country.code}:${todayStr}:${p.userId}`;
       const brandCapKey = `cap:brand:${country.code}:${todayStr}:${p.userId}:${session.brandId}`;
       try {
-        await this.redis.client.incrby?.(userCapKey, allowedPoints);
+        await this.redis.client.incrby?.(userCapKey, pts);
         await this.redis.client.expire?.(userCapKey, 172_800);
-        await this.redis.client.incrby?.(brandCapKey, allowedPoints);
+        await this.redis.client.incrby?.(brandCapKey, pts);
         await this.redis.client.expire?.(brandCapKey, 172_800);
       } catch {
         // Fallback a PostgreSQL como fuente de verdad.
       }
     }
 
+    return outcome.response;
+  }
+
+  /** Resultado guardado de una partida ya cerrada (respuesta idempotente). */
+  private async finishedResult(sessionId: string): Promise<GameFinishResponse> {
+    const s = await this.prisma.gameSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: { answers: { select: { correct: true } } },
+    });
+    if (s.status !== 'FINISHED') {
+      throw new AppError(HttpStatus.GONE, 'SESSION_EXPIRED', 'La sesión de juego venció.');
+    }
     return {
-      score: allowedPoints,
-      correct: correctCount,
-      total: session.questionIds.length,
-      dailyCapReached,
+      score: s.score ?? 0,
+      correct: s.answers.filter((a) => a.correct).length,
+      total: s.questionIds.length,
+      dailyCapReached: s.flags.includes('DAILY_CAP_REACHED'),
     };
   }
+}
+
+function isUniqueViolation(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002';
 }

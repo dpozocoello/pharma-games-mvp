@@ -1,3 +1,19 @@
+# PLAN — Correcciones posteriores a la revisión de arquitectura
+
+Estado: **en curso** · Fecha: 2026-11-23 · Origen: `docs/revision-arquitectura.md`
+
+| #   | Tarea                                                                                                                                                  | Estado |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| C4  | CI: lockfile sincronizado, `pnpm size` después del build, `pnpm test:int` en CI, `AUTH_TOKEN_SECRET` en CI, override de `effect` (ADR-022)             | ✅     |
+| C4  | `PrismaService` usa la URL de la configuración validada (las pruebas de integración usaban la base equivocada) y limpieza de países Z\* al re-ejecutar | ✅     |
+| C1  | `finish` atómico (bloqueo por usuario + reclamo condicional), `FOR SHARE` en respuestas, índice único parcial en `PointsLedger` (ADR-021)              | ✅     |
+| C1  | Pruebas de concurrencia contra PostgreSQL real (`test/integration/fair-play.int.test.ts`)                                                              | ✅     |
+| —   | Pendiente: C2, C3, A1–A7, M1–M8 (ver la sección 5 del reporte)                                                                                         | ⏳     |
+
+**Riesgo de despliegue:** si una base existente ya tiene movimientos `GAME` duplicados, la migración `20261123000000_ledger_game_unique` falla a propósito. Ver ADR-021 antes de desplegar.
+
+---
+
 # PLAN — Iteración 6: Medición, carga y endurecimiento (módulo 12 parcial + no funcionales)
 
 Estado: **terminada ✅ (Iteraciones 0 a 6 completas)** · Fecha: 2026-11-18 · Anterior: Iteración 5 (terminada ✅)

@@ -81,3 +81,12 @@ Formato: **ID — título** · fecha · decisión · motivo · alternativas.
 ## ADR-020 — Consentimiento obligatorio solo para roles jugadores (`CLERK` y `PHARMACY_MANAGER`)
 
 2026-11-18 · `ConsentGuard` bloquea por defecto las rutas para `CLERK` y `PHARMACY_MANAGER` hasta que acepten la `ConsentVersion` vigente de su país (`CountryConfig.consentVersionId`). Cuando un administrador publica una nueva versión de consentimiento, `consentVersionId` cambia y la app vuelve a exigir la aceptación antes de permitir jugar.
+
+## ADR-021 — Cierre de partida atómico: bloqueo por usuario, reclamo condicional e índice único parcial
+
+2026-11-23 · `finishSession` corre en una transacción que (1) toma `pg_advisory_xact_lock` sobre el usuario, (2) reclama la partida con `updateMany({ status: 'IN_PROGRESS' → 'FINISHED' })` y solo si gana calcula y acredita, (3) lee respuestas y puntos del día dentro de la transacción. Las solicitudes que pierden devuelven el resultado guardado (idempotencia). `submitAnswers` toma `FOR SHARE` sobre la fila de la partida, así ninguna respuesta entra después del cálculo. Como última barrera, la migración `20261123000000_ledger_game_unique` crea el índice único parcial `PointsLedger(sessionId) WHERE reason = 'GAME'`, en SQL porque Prisma no expresa índices parciales. · La revisión de arquitectura (C1) demostró con PostgreSQL real que 6 `finish` simultáneos acreditaban 6 veces y que dos partidas a la vez superaban el tope por marca (200 de 120). Un bloqueo por usuario y no global: los cierres de usuarios distintos no compiten. · Topes atómicos solo en Redis (rápido, pero Redis no es la fuente de verdad del libro) y `SERIALIZABLE` con reintentos (más complejo de operar).
+**Si la migración falla por duplicados** en una base existente: no se borra nada del libro inmutable; se anula cada movimiento `GAME` sobrante con un `REVERSAL` auditado y se aplica el índice sobre los movimientos que quedan, o se ajusta el predicado del índice con una ventana de fecha. Hay que decidirlo con el cliente antes de desplegar.
+
+## ADR-022 — Override de `effect` a `^3.22.1`
+
+2026-11-23 · `pnpm.overrides.effect = ^3.22.1`. `prisma@6.19.3` (la última 6.x) fija `effect 3.21.0`, afectada por GHSA-7589-6fvf-x4pw (ReDoS, severidad alta), y `pnpm audit --audit-level high` en CI fallaba. Es una actualización menor dentro de 3.x (MIT); `prisma generate`, `migrate deploy` y las semillas se verificaron con la versión nueva. · Quitar el override al migrar a Prisma 7. · Bajar el umbral de la auditoría (descartado: oculta el riesgo).

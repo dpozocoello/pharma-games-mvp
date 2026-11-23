@@ -71,9 +71,9 @@ k6 run -e BASE_URL=http://localhost:3000 tests/load/period-close.k6.js
 
 ### 3.3 Presupuesto de Rendimiento en Dispositivos de Gama Baja (CLAUDE.md §4.6)
 
-Verificado automáticamente en `apps/api/test/iteration3.test.ts`:
+Verificado en CI con `pnpm size` (`scripts/check-bundle-size.mjs`) después de `pnpm build`; mide el JS que carga `index.html`, sin los juegos dinámicos:
 
-- **JS inicial de la PWA (`apps/pwa/dist/assets/*.js`)**: **90,64 KB gzip** (límite máximo: **≤ 300 KB gzip**).
+- **JS inicial de la PWA (lo que carga `apps/pwa/dist/index.html`)**: **92,7 KB gzip** (medido el 2026-11-23) (límite máximo: **≤ 300 KB gzip**).
 - **Peso de `@pharma/game-trivia`**: **< 10 KB** (límite máximo: **≤ 1,5 MB**).
 - **Peso de `@pharma/game-true-false`**: **< 10 KB** (límite máximo: **≤ 1,5 MB**).
 - **Importación masiva CSV de 5.000 usuarios** (`apps/api/test/iteration2.test.ts`): **~1,1 segundos** (límite máximo: **< 60 segundos**).

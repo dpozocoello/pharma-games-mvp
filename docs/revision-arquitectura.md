@@ -2,6 +2,8 @@
 
 Fecha: 2026-11-23 · Alcance: todo el repositorio (commit `31f0286`) contrastado con `CLAUDE.md` · Revisor: análisis independiente, sin cambios en el código.
 
+> **Actualización 2026-11-23:** C1 y C4 están corregidos y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
+
 ## 1. Resumen ejecutivo
 
 El MVP tiene una **base sólida en seguridad de identidad y en el modelo de datos**: libro de puntos inmutable con trigger en PostgreSQL, refresh tokens rotados por familia, OTP guardado como HMAC, país fijado con actualización condicional, consentimiento que bloquea por defecto, logs sin datos personales y una PWA liviana (≈ 95 KB gzip).
@@ -13,26 +15,26 @@ Pero **el MVP no está listo para el piloto**. `PLAN.md` y `docs/informe-carga.m
 3. **Evidencia de carga:** el informe k6 no se puede reproducir con lo que hay en el repositorio (no hay Dockerfile, ni compose con 2 réplicas, y el script solo llama a `GET /games` aceptando 401).
 4. **CI roto:** `pnpm install --frozen-lockfile` falla y `pnpm test` falla en un checkout limpio.
 
-| Severidad | Cantidad |
-| --- | --- |
-| 🔴 Crítico | 4 |
-| 🟠 Alto | 7 |
-| 🟡 Medio | 8 |
-| 🟢 Bajo | 3 |
+| Severidad  | Cantidad |
+| ---------- | -------- |
+| 🔴 Crítico | 4        |
+| 🟠 Alto    | 7        |
+| 🟡 Medio   | 8        |
+| 🟢 Bajo    | 3        |
 
 ## 2. Verificación ejecutada
 
-| Comando | Resultado |
-| --- | --- |
-| `pnpm install --frozen-lockfile` | ❌ **Falla**: los especificadores de `apps/pwa` en `pnpm-lock.yaml` no coinciden con `package.json` (faltan `@pharma/game-*`). Es el primer paso del CI. |
-| `pnpm typecheck` / `pnpm lint` / `pnpm format:check` | ✅ (tras instalar sin `--frozen-lockfile`) |
-| `pnpm test` | ❌ 1 falla: `iteration3.test.ts › presupuesto de rendimiento` lee `apps/pwa/dist`, que no existe antes de `pnpm build`. El CI ejecuta `test` antes de `build`. |
-| `pnpm build` y luego medir el peso | ✅ PWA: 94,8 KB gzip el JS inicial; cada juego ≈ 2 KB gzip. Admin: 83,7 KB. |
-| `pnpm test:int` (PostgreSQL real) | No se ejecuta en el CI. Solo cubre `auth` y `scope`. |
+| Comando                                              | Resultado                                                                                                                                                      |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                     | ❌ **Falla**: los especificadores de `apps/pwa` en `pnpm-lock.yaml` no coinciden con `package.json` (faltan `@pharma/game-*`). Es el primer paso del CI.       |
+| `pnpm typecheck` / `pnpm lint` / `pnpm format:check` | ✅ (tras instalar sin `--frozen-lockfile`)                                                                                                                     |
+| `pnpm test`                                          | ❌ 1 falla: `iteration3.test.ts › presupuesto de rendimiento` lee `apps/pwa/dist`, que no existe antes de `pnpm build`. El CI ejecuta `test` antes de `build`. |
+| `pnpm build` y luego medir el peso                   | ✅ PWA: 94,8 KB gzip el JS inicial; cada juego ≈ 2 KB gzip. Admin: 83,7 KB.                                                                                    |
+| `pnpm test:int` (PostgreSQL real)                    | No se ejecuta en el CI. Solo cubre `auth` y `scope`.                                                                                                           |
 
 ## 3. Hallazgos
 
-### 🔴 C1 — Doble acreditación de puntos y topes diarios evadibles (carrera en `finishSession`)
+### 🔴 C1 — ✅ Corregido el 2026-11-23 (ADR-021) — Doble acreditación de puntos y topes diarios evadibles (carrera en `finishSession`)
 
 `apps/api/src/games/games.service.ts:502-640`
 
@@ -73,7 +75,7 @@ Esos sorted sets **nunca se leen** (no hay `ZREVRANGE` ni `ZREVRANK` en el códi
 
 **Corrección:** Dockerfile multi-etapa, compose con `api` ×2 y nginx o Traefik, y un script de semillas que emita N tokens. Un k6 con flujo completo (start → answers → finish) y con `expectedStatuses` solo 2xx. Desactivar o elevar el límite por IP para la IP del generador de carga, y volver a medir.
 
-### 🔴 C4 — El CI no puede pasar
+### 🔴 C4 — ✅ Corregido el 2026-11-23 — El CI no puede pasar
 
 `.github/workflows/ci.yml`, `pnpm-lock.yaml`, `apps/api/test/iteration3.test.ts:314`
 
@@ -88,7 +90,7 @@ Esos sorted sets **nunca se leen** (no hay `ZREVRANGE` ni `ZREVRANK` en el códi
 `packages/shared/src/fair-play.ts:39`, `games.service.ts:452`
 
 - `FAST_ANSWER` compara el `clientElapsedMs` que **declara el cliente**. Un script que responde en 200 ms solo tiene que enviar `clientElapsedMs: 2000`. La regla `SHORT_SESSION` sí usa el reloj del servidor, pero basta con esperar unos 15 s antes de enviar.
-- El bono de velocidad mide desde *la respuesta anterior recibida* (o desde `startedAt`), no desde que se mostró la pregunta. Si se espera y luego se envían 10 respuestas sueltas a 50 ms de distancia, de la 2.ª a la 10.ª reciben casi el bono máximo.
+- El bono de velocidad mide desde _la respuesta anterior recibida_ (o desde `startedAt`), no desde que se mostró la pregunta. Si se espera y luego se envían 10 respuestas sueltas a 50 ms de distancia, de la 2.ª a la 10.ª reciben casi el bono máximo.
 
 **Corrección:** para `FAST_ANSWER`, usar `serverElapsedMs` cuando exista y marcar como anomalía una diferencia grande entre el tiempo del cliente y el del servidor. Calcular el bono con el tiempo del servidor entre respuestas, con un tope de `secondsPerQuestion`, y anular el bono si el intervalo es menor que `minAnswerMs`. La prueba de aceptación "script a 200 ms" debería incluir un script que miente sobre `clientElapsedMs`.
 
@@ -115,7 +117,7 @@ Esto incumple §5, §9 y §11.
 
 `apps/api/test/iteration2..6.test.ts` (entre 19 y 32 usos de `vi.fn`/mocks por archivo), `games.service.ts:654,678-681`, `rankings.service.ts:164-176`
 
-En producción aparecen `tx.usageEvent?.create?.(...)`, `this.redis.client.incrby?.(...)` y `zadd?.` con `catch {}` y el comentario *"si el mock de Redis no implementa zadd"*. Las pruebas simuladas no detectan carreras, restricciones ni triggers; por eso C1 pasa sin que nada falle.
+En producción aparecen `tx.usageEvent?.create?.(...)`, `this.redis.client.incrby?.(...)` y `zadd?.` con `catch {}` y el comentario _"si el mock de Redis no implementa zadd"_. Las pruebas simuladas no detectan carreras, restricciones ni triggers; por eso C1 pasa sin que nada falle.
 
 **Corrección:** quitar el encadenamiento opcional y los `catch` vacíos. Llevar los escenarios de puntos, topes, anomalías, ranking de farmacia y traslado a `test/integration` con la base de datos real (ya existe `harness.ts`).
 
@@ -133,7 +135,7 @@ En producción aparecen `tx.usageEvent?.create?.(...)`, `this.redis.client.incrb
 
 La PWA solo llama a `refreshSession()` al cargar. No hay reintento ante un 401. Después de 15 minutos de uso, todas las llamadas fallan hasta que el usuario recarga la página, lo que anula en la práctica la "sesión de 90 días".
 
-**Corrección:** un wrapper `fetch` que ante un 401 haga un refresh único (con *single-flight*) y reintente, o un refresh proactivo al minuto 14.
+**Corrección:** un wrapper `fetch` que ante un 401 haga un refresh único (con _single-flight_) y reintente, o un refresh proactivo al minuto 14.
 
 ### 🟠 A7 — Observabilidad e infraestructura incompletas
 
@@ -141,16 +143,16 @@ No hay métricas Prometheus (`/metrics`), ni OpenTelemetry, ni Dockerfile, ni Te
 
 ### 🟡 Medios
 
-| ID | Hallazgo | Ubicación | Recomendación |
-| --- | --- | --- | --- |
-| M1 | `maxSessionsPerGamePerDay` se verifica con `count` y luego `create`, sin atomicidad: con solicitudes paralelas se puede superar | `games.service.ts:286-347` | `INCR` en Redis con TTL al fin del día local, o una restricción en la base de datos |
-| M2 | Los contadores `cap:user`/`cap:brand` de Redis se escriben pero **nunca se leen** (código muerto que confunde) | `games.service.ts:675-681` | Usarlos como fuente de topes (ver C1) o eliminarlos |
-| M3 | La documentación no coincide con el código: ADR-017 dice "script Lua atómico" (el código hace `hget` y luego `hincrby`) y ADR-019 dice 10 s (el código usa 15 s) | `otp.service.ts:65-68`, `token.service.ts:21` | Implementar el Lua o corregir los ADR |
-| M4 | El ranking de farmacia usa la asignación **actual**: al trasladar a alguien, sus puntos del periodo se van a la farmacia nueva. No hay ADR | `rankings.service.ts:113-127` | Decidirlo con el cliente. La opción conservadora es atribuir por `PharmacyAssignment` vigente al momento de la partida |
-| M5 | El catálogo de juegos no tiene caché en Redis (§11): `GET /games` hace 3 o 4 consultas a PostgreSQL cada vez, y es el 70 % del tráfico | `games.service.ts:133-246` | Cachear por país con invalidación al publicar |
-| M6 | `AppModule` registra los ~25 proveedores y controladores en un único módulo; hay archivos de más de 700 líneas (`admin/main.tsx` 1.423, `pwa/App.tsx` 895 en un solo componente) | `app.module.ts`, `apps/*/src` | Módulos Nest por dominio; separar las pantallas en rutas o componentes (React Router está instalado y no se usa como router) |
-| M7 | `computeEligiblePointsByUser` carga **todas** las alertas abiertas o confirmadas del país, sin filtrar por periodo | `admin-anomalies.service.ts:186-195` | Filtrar por las sesiones del periodo |
-| M8 | La importación CSV de 5.000 filas corre dentro de la solicitud HTTP | `admin-users-pharmacies.service.ts:468+` | Pasarla a BullMQ con `ImportJob` como estado (§5) |
+| ID  | Hallazgo                                                                                                                                                                         | Ubicación                                     | Recomendación                                                                                                                |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| M1  | `maxSessionsPerGamePerDay` se verifica con `count` y luego `create`, sin atomicidad: con solicitudes paralelas se puede superar                                                  | `games.service.ts:286-347`                    | `INCR` en Redis con TTL al fin del día local, o una restricción en la base de datos                                          |
+| M2  | Los contadores `cap:user`/`cap:brand` de Redis se escriben pero **nunca se leen** (código muerto que confunde)                                                                   | `games.service.ts:675-681`                    | Usarlos como fuente de topes (ver C1) o eliminarlos                                                                          |
+| M3  | La documentación no coincide con el código: ADR-017 dice "script Lua atómico" (el código hace `hget` y luego `hincrby`) y ADR-019 dice 10 s (el código usa 15 s)                 | `otp.service.ts:65-68`, `token.service.ts:21` | Implementar el Lua o corregir los ADR                                                                                        |
+| M4  | El ranking de farmacia usa la asignación **actual**: al trasladar a alguien, sus puntos del periodo se van a la farmacia nueva. No hay ADR                                       | `rankings.service.ts:113-127`                 | Decidirlo con el cliente. La opción conservadora es atribuir por `PharmacyAssignment` vigente al momento de la partida       |
+| M5  | El catálogo de juegos no tiene caché en Redis (§11): `GET /games` hace 3 o 4 consultas a PostgreSQL cada vez, y es el 70 % del tráfico                                           | `games.service.ts:133-246`                    | Cachear por país con invalidación al publicar                                                                                |
+| M6  | `AppModule` registra los ~25 proveedores y controladores en un único módulo; hay archivos de más de 700 líneas (`admin/main.tsx` 1.423, `pwa/App.tsx` 895 en un solo componente) | `app.module.ts`, `apps/*/src`                 | Módulos Nest por dominio; separar las pantallas en rutas o componentes (React Router está instalado y no se usa como router) |
+| M7  | `computeEligiblePointsByUser` carga **todas** las alertas abiertas o confirmadas del país, sin filtrar por periodo                                                               | `admin-anomalies.service.ts:186-195`          | Filtrar por las sesiones del periodo                                                                                         |
+| M8  | La importación CSV de 5.000 filas corre dentro de la solicitud HTTP                                                                                                              | `admin-users-pharmacies.service.ts:468+`      | Pasarla a BullMQ con `ImportJob` como estado (§5)                                                                            |
 
 ### 🟢 Bajos
 
@@ -170,16 +172,16 @@ No hay métricas Prometheus (`/metrics`), ni OpenTelemetry, ni Dockerfile, ni Te
 
 ## 5. Plan de remediación sugerido (antes del piloto en Perú)
 
-| Prioridad | Acción | Esfuerzo estimado |
-| --- | --- | --- |
-| 1 | C4: lockfile, orden de test y build, `test:int` en CI | 0,5 día |
-| 2 | C1 + M1 + M2: `finish` atómico, índice único parcial, topes atómicos y prueba de concurrencia real | 1–2 días |
-| 3 | A5 + A6: rate limit que falla abierto y renovación automática del token | 1 día |
-| 4 | C2 + M5 + M7: ranking incremental en Redis y caché del catálogo | 2–3 días |
-| 5 | A1: anomalías y bono de velocidad con tiempos del servidor | 1 día |
-| 6 | A3: trabajos programados (foto diaria por país, importaciones) | 1–2 días |
-| 7 | A2: service worker | 1 día |
-| 8 | C3 + A7: Dockerfile, compose ×2, k6 realista, `/metrics`, y repetir el informe de carga | 2–3 días |
-| 9 | A4 + M6: quitar el código adaptado a mocks, modularizar, más pruebas de integración | continuo |
+| Prioridad | Acción                                                                                             | Esfuerzo estimado |
+| --------- | -------------------------------------------------------------------------------------------------- | ----------------- |
+| 1         | C4: lockfile, orden de test y build, `test:int` en CI                                              | 0,5 día           |
+| 2         | C1 + M1 + M2: `finish` atómico, índice único parcial, topes atómicos y prueba de concurrencia real | 1–2 días          |
+| 3         | A5 + A6: rate limit que falla abierto y renovación automática del token                            | 1 día             |
+| 4         | C2 + M5 + M7: ranking incremental en Redis y caché del catálogo                                    | 2–3 días          |
+| 5         | A1: anomalías y bono de velocidad con tiempos del servidor                                         | 1 día             |
+| 6         | A3: trabajos programados (foto diaria por país, importaciones)                                     | 1–2 días          |
+| 7         | A2: service worker                                                                                 | 1 día             |
+| 8         | C3 + A7: Dockerfile, compose ×2, k6 realista, `/metrics`, y repetir el informe de carga            | 2–3 días          |
+| 9         | A4 + M6: quitar el código adaptado a mocks, modularizar, más pruebas de integración                | continuo          |
 
 Hasta cerrar los puntos 1–4, `PLAN.md` debería volver a marcar las Iteraciones 3, 4, 5 y 6 como **parcialmente cumplidas**.

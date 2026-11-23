@@ -20,7 +20,8 @@
     "test": "turbo run test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:int": "turbo run test:int"
+    "test:int": "turbo run test:int",
+    "size": "node scripts/check-bundle-size.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
@@ -33,7 +34,8 @@
   },
   "pnpm": {
     "overrides": {
-      "deepmerge-ts": "^8.0.2"
+      "deepmerge-ts": "^8.0.2",
+      "effect": "^3.22.1"
     }
   },
   "scarfSettings": {
