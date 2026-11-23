@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import { redisConnection } from '../../common/bullmq';
+import { closeBullmq, throttledWarn, withRedisTimeout } from '../../common/redis-availability';
 import { ENV, type Env } from '../../config/env';
 import { OtpDeliveryService, type OtpMessage } from './providers';
 
@@ -25,6 +26,8 @@ export class OtpQueue implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     const conn = redisConnection(this.env.REDIS_URL);
     this.queue = new Queue<OtpMessage>(QUEUE, { connection: conn });
+    const warn = throttledWarn(this.logger);
+    this.queue.on('error', (e) => warn('queue', `Cola OTP: ${e.message}`));
     if (this.env.OTP_WORKER_ENABLED) {
       this.worker = new Worker<OtpMessage>(
         QUEUE,
@@ -34,6 +37,7 @@ export class OtpQueue implements OnModuleInit, OnModuleDestroy {
         },
         { connection: conn, concurrency: 20 },
       );
+      this.worker.on('error', (e) => warn('worker', `Worker OTP: ${e.message}`));
       this.worker.on('failed', (job, err) => {
         this.logger.warn(`Envío OTP fallido (intento ${job?.attemptsMade ?? '?'}): ${err.message}`);
       });
@@ -42,16 +46,18 @@ export class OtpQueue implements OnModuleInit, OnModuleDestroy {
 
   async enqueue(msg: OtpMessage): Promise<void> {
     if (!this.queue) throw new Error('Cola OTP no inicializada');
-    await this.queue.add('send', msg, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
-      removeOnComplete: true,
-      removeOnFail: { age: 3600 },
-    });
+    // Con Redis caído BullMQ esperaría sin límite: la solicitud responde 503 en vez de colgarse.
+    await withRedisTimeout(
+      this.queue.add('send', msg, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: true,
+        removeOnFail: { age: 3600 },
+      }),
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.worker?.close();
-    await this.queue?.close();
+    await closeBullmq([this.worker, this.queue]);
   }
 }

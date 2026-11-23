@@ -121,7 +121,7 @@ En producción aparecen `tx.usageEvent?.create?.(...)`, `this.redis.client.incrb
 
 **Corrección:** quitar el encadenamiento opcional y los `catch` vacíos. Llevar los escenarios de puntos, topes, anomalías, ranking de farmacia y traslado a `test/integration` con la base de datos real (ya existe `harness.ts`).
 
-### 🟠 A5 — Si Redis cae, se cae toda la API
+### 🟠 A5 — ✅ Corregido el 2026-11-23 (ADR-026) — Si Redis cae, se cae toda la API
 
 `apps/api/src/common/rate-limit.ts:32-40`
 

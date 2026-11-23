@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Worker, type Job } from 'bullmq';
 import { redisConnection } from '../common/bullmq';
+import { closeBullmq, throttledWarn } from '../common/redis-availability';
 import { ENV, type Env } from '../config/env';
 import { PrismaService } from '../infra/prisma.service';
 import {
@@ -38,6 +39,8 @@ export class RankingJobsWorker implements OnApplicationBootstrap, OnModuleDestro
       connection: redisConnection(this.env.REDIS_URL),
       concurrency: 1,
     });
+    const warn = throttledWarn(this.logger);
+    this.worker.on('error', (e) => warn('worker', `Worker rankings: ${e.message}`));
     this.worker.on('failed', (job, err) => {
       this.logger.error(
         `Foto diaria fallida (${job?.data.countryCode ?? '?'}, intento ${job?.attemptsMade ?? '?'}): ${err.message}`,
@@ -74,6 +77,6 @@ export class RankingJobsWorker implements OnApplicationBootstrap, OnModuleDestro
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.worker?.close();
+    await closeBullmq([this.worker]);
   }
 }

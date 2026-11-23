@@ -7,13 +7,21 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { isRedisUnavailable, serviceUnavailable, throttledWarn } from './redis-availability';
 
 /** Errores con formato RFC 7807 (application/problem+json). No filtra detalles internos. */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemDetailsFilter.name);
+  private readonly warn = throttledWarn(this.logger);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    // Redis caído no es un error interno de la app: se informa 503 y se puede reintentar.
+    if (isRedisUnavailable(exception)) {
+      this.warn('redis', `Redis no disponible: ${(exception as Error).message}`);
+      host.switchToHttp().getResponse<Response>().setHeader('Retry-After', '30');
+      exception = serviceUnavailable();
+    }
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();

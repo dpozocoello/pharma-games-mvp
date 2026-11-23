@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { redisConnection } from '../common/bullmq';
+import { closeBullmq, throttledWarn } from '../common/redis-availability';
 import { ENV, type Env } from '../config/env';
 import { PrismaService } from '../infra/prisma.service';
 
@@ -36,9 +37,10 @@ export class DailySnapshotScheduler implements OnApplicationBootstrap, OnModuleD
     private readonly prisma: PrismaService,
   ) {}
 
-  async onApplicationBootstrap(): Promise<void> {
-    await this.syncAll().catch((e: unknown) =>
-      // Sin Redis al arrancar no se cae la API: la siguiente instancia o sincronización lo reintenta.
+  onApplicationBootstrap(): void {
+    // En segundo plano: BullMQ espera a Redis sin límite, y el arranque de la API no debe depender
+    // de eso. Si Redis está caído, la programación se completa sola cuando vuelve.
+    void this.syncAll().catch((e: unknown) =>
       this.logger.warn(`No se pudo programar la foto diaria: ${String(e)}`),
     );
   }
@@ -79,13 +81,17 @@ export class DailySnapshotScheduler implements OnApplicationBootstrap, OnModuleD
   }
 
   private getQueue(): Queue<DailySnapshotData> {
-    this.queue ??= new Queue<DailySnapshotData>(RANKINGS_QUEUE, {
-      connection: redisConnection(this.env.REDIS_URL),
-    });
+    if (!this.queue) {
+      this.queue = new Queue<DailySnapshotData>(RANKINGS_QUEUE, {
+        connection: redisConnection(this.env.REDIS_URL),
+      });
+      const warn = throttledWarn(this.logger);
+      this.queue.on('error', (e) => warn('queue', `Cola rankings: ${e.message}`));
+    }
     return this.queue;
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.queue?.close();
+    await closeBullmq([this.queue]);
   }
 }

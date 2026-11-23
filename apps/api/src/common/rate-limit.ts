@@ -1,9 +1,17 @@
-import { CanActivate, ExecutionContext, HttpStatus, Injectable, SetMetadata } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  HttpStatus,
+  Injectable,
+  Logger,
+  SetMetadata,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Response } from 'express';
 import type { AuthedRequest } from '../auth/principal';
 import { RedisService } from '../infra/redis.service';
 import { AppError } from './errors';
+import { isRedisUnavailable, serviceUnavailable, throttledWarn } from './redis-availability';
 
 export interface RateLimitPolicy {
   /** Nombre del cubo (aparece en la clave de Redis). */
@@ -44,8 +52,16 @@ export class RateLimitService {
   }
 }
 
+/**
+ * Si Redis no está disponible, el límite general **falla abierto** (registra y deja pasar: un Redis
+ * caído no debe tumbar toda la API, CLAUDE.md §11). Las rutas con política propia (`@RateLimit`,
+ * ingreso por OTP y refresh) **fallan cerradas** con 503: sin contador no hay protección contra
+ * fuerza bruta, y de todos modos el OTP vive en Redis.
+ */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
+  private readonly warn = throttledWarn(new Logger(RateLimitGuard.name));
+
   constructor(
     private readonly reflector: Reflector,
     private readonly limiter: RateLimitService,
@@ -64,7 +80,15 @@ export class RateLimitGuard implements CanActivate {
     if (route) checks.push([route, ip]);
 
     for (const [policy, subject] of checks) {
-      const retryAfter = await this.limiter.hit(policy, subject);
+      let retryAfter: number;
+      try {
+        retryAfter = await this.limiter.hit(policy, subject);
+      } catch (e) {
+        if (!isRedisUnavailable(e)) throw e;
+        if (route) throw serviceUnavailable();
+        this.warn('rl', 'Límite de solicitudes sin Redis: se deja pasar (falla abierto)');
+        return true;
+      }
       if (retryAfter > 0) {
         http.getResponse<Response>().setHeader('Retry-After', String(retryAfter));
         throw new AppError(

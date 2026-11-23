@@ -30,6 +30,13 @@ En producción (`NODE_ENV=production`) la API **aborta el arranque inmediatament
 
 ---
 
+## 2.0 Si Redis Cae (ADR-026)
+
+- **Qué sigue funcionando:** jugar partidas, catálogo, rankings y perfil (se calculan desde PostgreSQL, más lento), consentimiento y panel. El límite general de solicitudes deja pasar y registra `Límite de solicitudes sin Redis`.
+- **Qué no:** ingresar con OTP y renovar sesión responden `503 SERVICE_UNAVAILABLE` (el código vive en Redis). Quien ya tiene sesión abierta sigue jugando hasta que venza su token de acceso (15 min).
+- **Cómo se ve:** `/ready` responde 503; en los logs, `Redis no disponible` como mucho una vez cada 30 s por proceso.
+- **Al volver Redis:** no hay que hacer nada. La caché se vuelve a llenar, el ranking en vivo se reconstruye en la primera lectura y la programación de la foto diaria se completa sola.
+
 ## 2.1 Foto Oficial Diaria del Ranking (ADR-024)
 
 - **Cuándo:** todos los días a las 23:55 en la hora local de cada país (`RANKING_SNAPSHOT_CRON`, `America/Lima`, `America/Bogota`, `America/Guayaquil`). Se programa sola al arrancar la API y al activar, desactivar o cambiar la zona horaria de un país en el panel.

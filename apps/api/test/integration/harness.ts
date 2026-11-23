@@ -33,13 +33,13 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
-export async function createHarness(): Promise<Harness> {
+export async function createHarness(opts: { redisUrl?: string } = {}): Promise<Harness> {
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
     LOG_LEVEL: 'fatal',
     DATABASE_URL: inject('databaseUrl'),
-    REDIS_URL: inject('redisUrl'),
+    REDIS_URL: opts.redisUrl ?? inject('redisUrl'),
     MESSAGING_PROVIDER: 'console',
     COOKIE_SECURE: 'false',
   });
