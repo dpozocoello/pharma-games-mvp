@@ -222,4 +222,18 @@ describe('Ranking en vivo', () => {
     const ind = await getRankings(token, 'scope=individual&limit=200');
     expect(ind.rows).toEqual(direct.individualRows.slice(0, 200));
   });
+
+  it('quien acaba de jugar se ve en la primera lectura del ranking (no en la versión vieja)', async () => {
+    const { userId, token } = await newClerk();
+    // Como la PWA: al ingresar ya pide el perfil y eso deja una versión del ranking sin su partida.
+    await h.http().get('/api/v1/me/ranking').set(bearer(token)).expect(200);
+    const before = await getRankings(token, 'scope=individual');
+    expect(before.me).toBeNull();
+
+    await playAndFinish(token);
+
+    // Primera lectura después de jugar, sin reintentos.
+    const after = await getRankings(token, 'scope=individual');
+    expect(after.me?.entityId).toBe(userId);
+  });
 });

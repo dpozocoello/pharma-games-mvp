@@ -106,6 +106,13 @@ export class RankingsService {
           job.catch((e: unknown) =>
             this.logger.warn(`No se pudo reconstruir el ranking en vivo: ${String(e)}`),
           );
+          // Quien dispara la reconstrucción espera un poco: casi siempre es quien acaba de jugar y
+          // espera verse. Si tarda más, recibe la versión anterior (las demás nunca esperan).
+          const fresh = await Promise.race([
+            job.catch(() => null),
+            new Promise<null>((r) => setTimeout(() => r(null), this.env.RANKING_LIVE_WAIT_MS)),
+          ]);
+          if (fresh) return memoryView(fresh);
         } else if (!cur) {
           cur = await this.waitForGeneration(period.id);
           if (!cur) return memoryView(await this.computePeriodStandings(countryId, period.id));
@@ -637,13 +644,31 @@ export class RankingsService {
       return { period, winnersCount: existingWinners.length };
     }
 
+    // Un periodo solo se cierra cuando terminó (ADR-031). Cerrarlo antes abría el siguiente en el
+    // mes próximo y lo jugado en el resto del mes no contaba para ningún periodo.
+    if (new Date() < period.endsAt) {
+      const endsLocal = new Intl.DateTimeFormat('es', {
+        timeZone: period.country.timezone,
+        dateStyle: 'long',
+        timeStyle: 'short',
+      }).format(period.endsAt);
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'PERIOD_NOT_ENDED',
+        `El periodo termina el ${endsLocal}; se puede cerrar desde ese momento.`,
+        { endsAt: period.endsAt.toISOString() },
+      );
+    }
+
     // 1. Tomar foto oficial final antes de cerrar
     await this.takeDailySnapshot(period.countryId, period.id);
     const standings = await this.computePeriodStandings(period.countryId, period.id);
 
-    const topIndividuals = standings.individualRows.slice(0, 10);
-    const topPharmacies = standings.pharmacyRows.slice(0, 10);
-    const topCountry = standings.countryRows.slice(0, 1);
+    // Solo gana quien tiene puntos que cuentan (los que están en revisión no suman).
+    const withPoints = (r: RankingRowView) => r.points > 0;
+    const topIndividuals = standings.individualRows.filter(withPoints).slice(0, 10);
+    const topPharmacies = standings.pharmacyRows.filter(withPoints).slice(0, 10);
+    const topCountry = standings.countryRows.filter(withPoints).slice(0, 1);
 
     const winnersData = [
       ...topIndividuals.map((r) => ({

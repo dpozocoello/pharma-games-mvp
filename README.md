@@ -132,3 +132,15 @@ En modo desarrollo (`MESSAGING_PROVIDER=console`), el código OTP de 6 dígitos 
 - [Formato de Archivos CSV e Importación Masiva](docs/formato-csv.md)
 - [Informe de Pruebas de Carga (k6 — 1.125 req/s) y Presupuesto de Bundle](docs/informe-carga.md)
 - [Manual de Operación, Respaldos, Derechos ARCO y Seguridad OWASP ASVS L2](docs/operacion.md)
+
+## Staging local (configuración de producción)
+
+Con PostgreSQL y Redis en marcha (`pnpm infra:up`):
+
+```bash
+infra/staging-local/start.sh          # build + base pharma_staging + 2 réplicas de la API + gateway
+node infra/staging-local/emulate.mjs  # recorre el uso real con Playwright y guarda capturas
+infra/staging-local/stop.sh
+```
+
+PWA en http://localhost:8080, panel en http://localhost:8081. WhatsApp y SMS están simulados: el último código de cada número se ve en `http://localhost:4010/__inbox?to=+51900000001`. Detalle en ADR-032.

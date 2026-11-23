@@ -213,6 +213,7 @@ export function App() {
       const res = await verifyOtp(chosen, identifier, otpCode.trim());
       setSessionToken(res.accessToken);
       setSessionEnded(false);
+      setInfoMsg(null); // el aviso "te enviamos un código" ya no corresponde
       setMe(res.me);
       if (res.me.country?.code) {
         saveChosenCountry(storage, res.me.country.code);
@@ -647,6 +648,17 @@ export function App() {
                 País
               </button>
             </div>
+            {rankingsQuery.isPending && <p className={styles.muted}>Cargando ranking…</p>}
+            {rankingsQuery.isError && (
+              <p role="alert" className={styles.alert}>
+                No pudimos cargar el ranking. Revisa tu conexión e intenta de nuevo.
+              </p>
+            )}
+            {rankingsQuery.data && rankingsQuery.data.rows.length === 0 && (
+              <p className={styles.muted}>
+                Aún no hay puntos en este periodo. ¡Juega para aparecer!
+              </p>
+            )}
             <ul className={styles.list}>
               {rankingsQuery.data?.rows.map((r) => (
                 <li
@@ -654,15 +666,17 @@ export function App() {
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    gap: 12,
                     borderBottom: '1px solid #e2e8f0',
                     paddingBottom: 8,
                   }}
                 >
-                  <span>
+                  <span style={{ minWidth: 0 }}>
                     <strong>#{r.position}</strong> {r.displayName}{' '}
                     {r.subtitle ? <small className={styles.muted}>({r.subtitle})</small> : null}
                   </span>
-                  <strong>{r.points} pts</strong>
+                  <strong style={{ whiteSpace: 'nowrap' }}>{r.points} pts</strong>
                 </li>
               ))}
             </ul>

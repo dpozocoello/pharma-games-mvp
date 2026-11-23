@@ -177,4 +177,40 @@ describe('Fin de partida concurrente', () => {
     });
     expect(ledger.onHold).toBe(true); // no cuenta para ganadores hasta que un admin resuelva
   });
+
+  it('red irregular: la respuesta que llega justo tras el lote de reconexión no se marca ni cobra bono', async () => {
+    const { token } = await newClerk();
+    const game = (await catalog(token)).games[0]!;
+    const s = (await h.http().post(`/api/v1/games/${game.id}/sessions`).set(bearer(token)))
+      .body as StartedGameSessionResponse;
+    const qs = await h.prisma.question.findMany({
+      where: { id: { in: s.questions.map((q) => q.id) } },
+      select: { id: true, correctAnswer: true },
+    });
+    const send = (answers: { questionId: string; answer: string; clientElapsedMs: number }[]) =>
+      h
+        .http()
+        .post(`/api/v1/sessions/${s.session.id}/answers`)
+        .set(bearer(token))
+        .send({ token: s.session.token, answers })
+        .expect(200);
+
+    // Respondió 2 preguntas sin red (~1,6 s cada una) y el SDK las envió juntas al reconectar…
+    await new Promise((r) => setTimeout(r, 3_200));
+    await send(
+      qs
+        .slice(0, 2)
+        .map((q) => ({ questionId: q.id, answer: q.correctAnswer, clientElapsedMs: 1_600 })),
+    );
+    // …y la siguiente, que ya estaba mirando, llega milisegundos después.
+    await send([{ questionId: qs[2]!.id, answer: qs[2]!.correctAnswer, clientElapsedMs: 2_500 }]);
+    await finish(token, s).expect(200);
+
+    const third = await h.prisma.sessionAnswer.findFirstOrThrow({
+      where: { sessionId: s.session.id, questionId: qs[2]!.id },
+    });
+    expect(third.serverElapsedMs).toBeNull(); // sin medir: sin bono
+    const alerts = await h.prisma.anomalyAlert.findMany({ where: { sessionId: s.session.id } });
+    expect(alerts.map((a) => a.rule)).not.toContain('FAST_ANSWER');
+  });
 });

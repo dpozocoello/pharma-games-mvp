@@ -412,7 +412,7 @@ export class GamesService {
 
     const session = await this.prisma.gameSession.findUnique({
       where: { id: sessionId },
-      include: { answers: { orderBy: { receivedAt: 'desc' }, take: 1 } },
+      include: { answers: { orderBy: { receivedAt: 'desc' }, take: 2 } },
     });
     if (!session) throw new NotFoundException('Sesión no encontrada');
     if (session.userId !== p.userId) {
@@ -470,13 +470,20 @@ export class GamesService {
     now: Date,
   ): Promise<{ accepted: number }> {
     let lastTimestamp = session.answers[0]?.receivedAt ?? session.startedAt;
+    // Si lo último que llegó fue un lote (reconexión), el intervalo hasta esta respuesta no mide
+    // cuánto tardó la persona: sin bono de velocidad (misma regla que serverObservedTimes).
+    const afterBatch =
+      session.answers.length === 2 &&
+      session.answers[0]!.receivedAt.getTime() === session.answers[1]!.receivedAt.getTime();
     let accepted = 0;
 
     for (const item of input.answers) {
       const correctAns = correctById.get(item.questionId);
       const isCorrect = correctAns !== undefined && item.answer === correctAns;
       const serverElapsedMs =
-        input.answers.length === 1 ? Math.max(1, now.getTime() - lastTimestamp.getTime()) : null;
+        input.answers.length === 1 && !afterBatch
+          ? Math.max(1, now.getTime() - lastTimestamp.getTime())
+          : null;
 
       const points = calculateAnswerPoints(isCorrect, serverElapsedMs, rules);
 

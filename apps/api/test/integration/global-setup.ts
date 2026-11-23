@@ -43,6 +43,9 @@ export default async function setup({ provide }: GlobalSetupContext) {
       });
       await prisma.countryConfig.deleteMany({ where: { countryId: c.id } });
       await prisma.consentVersion.deleteMany({ where: { countryId: c.id } });
+      const periods = { period: { countryId: c.id } };
+      await prisma.winner.deleteMany({ where: periods });
+      await prisma.rankingSnapshot.deleteMany({ where: periods });
       await prisma.rankingPeriod.deleteMany({ where: { countryId: c.id } });
       await prisma.country.delete({ where: { id: c.id } });
     }

@@ -4,6 +4,8 @@ Fecha: 2026-11-23 · Alcance: todo el repositorio (commit `31f0286`) contrastado
 
 > **Actualización 2026-11-23:** C1, C2, C4 y B2 están corregidos y la foto diaria de A3 está programada (C2 medido en `docs/informe-carga.md` §3.4) y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
 
+> **Actualización 2026-11-23 (staging):** la emulación de uso en `infra/staging-local/` encontró 4 problemas que no estaban en esta revisión, ya corregidos: cierre anticipado de periodo que dejaba partidas fuera de todo periodo y ganadores con 0 puntos (ADR-031), falso positivo de `FAST_ANSWER` tras reconectar (ADR-029), ranking que no mostraba a quien acababa de jugar (ADR-023) y textos de la PWA.
+
 ## 1. Resumen ejecutivo
 
 El MVP tiene una **base sólida en seguridad de identidad y en el modelo de datos**: libro de puntos inmutable con trigger en PostgreSQL, refresh tokens rotados por familia, OTP guardado como HMAC, país fijado con actualización condicional, consentimiento que bloquea por defecto, logs sin datos personales y una PWA liviana (≈ 95 KB gzip).

@@ -572,6 +572,15 @@ describe('Iteración 5 — Rankings (promedio por activo), panel del gerente, pe
   it('POST /admin/periods/:id/close toma foto oficial, genera ganadores, abre siguiente periodo y exporta winners.csv', async () => {
     const adminToken = tokens.signAccess(adminPrincipal);
 
+    // Un periodo en curso no se puede cerrar (ADR-031).
+    const early = await httpTest(app)
+      .post(`/api/v1/admin/periods/${PERIOD_ID}/close`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(early.status).toBe(409);
+    expect(early.body.code).toBe('PERIOD_NOT_ENDED');
+
+    // Terminado el periodo, se cierra (el mock no filtra por fechas: la clasificación se conserva).
+    periodsStore[0]!.endsAt = new Date(Date.now() - 1000);
     const closeRes = await httpTest(app)
       .post(`/api/v1/admin/periods/${PERIOD_ID}/close`)
       .set('Authorization', `Bearer ${adminToken}`);

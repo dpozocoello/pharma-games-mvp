@@ -151,4 +151,45 @@ describe('Tiempos del servidor contra un cliente que miente (§9)', () => {
       calculateAnswerPoints(true, DEFAULT_POINTS_RULES.minAnswerMs, DEFAULT_POINTS_RULES),
     ).toBe(15);
   });
+
+  it('la respuesta que llega justo después de un lote (reconexión) no se mide con el reloj del servidor', () => {
+    // q1 con red; q2-q4 sin red, enviadas juntas al reconectar (t=20 s); q5 respondida 52 ms después
+    // del envío del lote, aunque la persona llevaba ~2,5 s viendo esa pregunta.
+    const times = serverObservedTimes(t0, [
+      { questionId: 'q1', receivedAt: at(3_000) },
+      { questionId: 'q2', receivedAt: at(20_000) },
+      { questionId: 'q3', receivedAt: at(20_000) },
+      { questionId: 'q4', receivedAt: at(20_000) },
+      { questionId: 'q5', receivedAt: at(20_052) },
+      { questionId: 'q6', receivedAt: at(22_600) },
+    ]);
+    expect(times.get('q5')).toBeNull();
+    expect(times.get('q6')).toBe(2_548);
+    expect(times.get('q2')).toBe(5_667);
+  });
+
+  it('un bot que alterna lotes de 2 y respuestas sueltas igual queda marcado por los lotes', () => {
+    const times = serverObservedTimes(t0, [
+      { questionId: 'q1', receivedAt: at(40) },
+      { questionId: 'q2', receivedAt: at(40) },
+      { questionId: 'q3', receivedAt: at(60) }, // después de un lote: sin medir
+      { questionId: 'q4', receivedAt: at(80) },
+      { questionId: 'q5', receivedAt: at(80) },
+    ]);
+    expect(times.get('q3')).toBeNull();
+    expect(times.get('q4')).toBe(10);
+    const anomalies = evaluateSessionAnomalies({
+      ...base,
+      questionCount: 5,
+      answers: [...times.entries()].map(([questionId, serverObservedMs]) => ({
+        questionId,
+        clientElapsedMs: 5_000,
+        serverObservedMs,
+        correct: true,
+      })),
+    });
+    expect(anomalies.find((a) => a.rule === 'FAST_ANSWER')?.details).toMatchObject({
+      fastAnswerCount: 4,
+    });
+  });
 });

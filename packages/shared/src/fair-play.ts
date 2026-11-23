@@ -109,23 +109,31 @@ export function evaluateSessionAnomalies(input: SessionEvaluationInput): Detecte
  * intervalo desde la llegada anterior (o desde el inicio de la partida). Las respuestas que llegaron
  * juntas en un lote se reparten ese intervalo. Un lote enviado al reconectar tras jugar sin red tiene
  * un intervalo largo y no parece rápido; un script que responde en ráfaga sí.
+ *
+ * Excepción: una respuesta suelta que llega justo **después de un lote** vale `null` (sin medir).
+ * El lote se envió al reconectar mientras la persona ya miraba esa pregunta, así que el intervalo
+ * no dice cuánto tardó (falso positivo encontrado al emular red irregular en staging). Los lotes
+ * en sí sí se miden, así que alternar lotes y respuestas sueltas no esconde una ráfaga.
  */
 export function serverObservedTimes(
   startedAt: Date,
   answers: { questionId: string; receivedAt: Date }[],
-): Map<string, number> {
+): Map<string, number | null> {
   const groups = new Map<number, string[]>();
   for (const a of answers) {
     const t = a.receivedAt.getTime();
     groups.set(t, [...(groups.get(t) ?? []), a.questionId]);
   }
-  const out = new Map<string, number>();
+  const out = new Map<string, number | null>();
   let prev = startedAt.getTime();
+  let prevWasBatch = false;
   for (const t of [...groups.keys()].sort((x, y) => x - y)) {
     const ids = groups.get(t)!;
-    const each = Math.max(0, t - prev) / ids.length;
-    for (const id of ids) out.set(id, Math.round(each));
+    const each = Math.round(Math.max(0, t - prev) / ids.length);
+    const unmeasured = prevWasBatch && ids.length === 1;
+    for (const id of ids) out.set(id, unmeasured ? null : each);
     prev = t;
+    prevWasBatch = ids.length > 1;
   }
   return out;
 }
