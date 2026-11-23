@@ -85,7 +85,7 @@ Esos sorted sets **nunca se leen** (no hay `ZREVRANGE` ni `ZREVRANK` en el códi
 
 **Corrección:** regenerar y commitear el lockfile. Mover la verificación de peso a un paso posterior a `build` (por ejemplo, un script `size-check`). Agregar `pnpm test:int` al workflow.
 
-### 🟠 A1 — Las anomalías y el bono de velocidad se pueden manipular desde el cliente
+### 🟠 A1 — ✅ Corregido el 2026-11-23 (ADR-029) — Las anomalías y el bono de velocidad se pueden manipular desde el cliente
 
 `packages/shared/src/fair-play.ts:39`, `games.service.ts:452`
 

@@ -13,6 +13,7 @@ import {
   calculateAnswerPoints,
   evaluateSessionAnomalies,
   localDay,
+  serverObservedTimes,
   toPublicQuestion,
   zonedMidnightUtc,
   type CatalogGameItem,
@@ -610,12 +611,15 @@ export class GamesService {
             ? Math.min(totalClientElapsedMs, serverWallMs || totalClientElapsedMs)
             : serverWallMs;
 
+        // Tiempo por respuesta según el servidor: el del cliente se puede falsear (§9).
+        const serverTimes = serverObservedTimes(session.startedAt, answers);
         const detectedAnomalies = evaluateSessionAnomalies({
           rules,
           questionCount: session.questionIds.length,
           answers: answers.map((a) => ({
             questionId: a.questionId,
             clientElapsedMs: a.clientElapsedMs,
+            serverObservedMs: serverTimes.get(a.questionId) ?? null,
             correct: a.correct,
           })),
           sessionDurationMs,

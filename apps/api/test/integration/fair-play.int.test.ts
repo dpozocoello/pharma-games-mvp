@@ -136,4 +136,45 @@ describe('Fin de partida concurrente', () => {
       }),
     ).rejects.toThrow();
   });
+
+  it('un script que responde en ráfaga declarando 5 s por pregunta queda en revisión y sin bono', async () => {
+    const { userId, token } = await newClerk();
+    const game = (await catalog(token)).games[0]!;
+    const start = await h.http().post(`/api/v1/games/${game.id}/sessions`).set(bearer(token));
+    const s = start.body as StartedGameSessionResponse;
+    const qs = await h.prisma.question.findMany({
+      where: { id: { in: s.questions.map((q) => q.id) } },
+      select: { id: true, correctAnswer: true },
+    });
+
+    // Una respuesta por solicitud, lo más rápido posible, mintiendo sobre el tiempo.
+    for (const q of qs) {
+      await h
+        .http()
+        .post(`/api/v1/sessions/${s.session.id}/answers`)
+        .set(bearer(token))
+        .send({
+          token: s.session.token,
+          answers: [{ questionId: q.id, answer: q.correctAnswer, clientElapsedMs: 5000 }],
+        })
+        .expect(200);
+    }
+    const fin = await finish(token, s);
+    expect(fin.status).toBe(200);
+
+    // Todas correctas pero sin bono de velocidad: solo el punto base por respuesta.
+    const rules = (
+      await h.prisma.countryConfig.findFirstOrThrow({ where: { country: { code: 'PE' } } })
+    ).pointsRules as { pointsPerCorrect: number };
+    expect(fin.body.correct).toBe(qs.length);
+    expect(fin.body.score).toBe(qs.length * rules.pointsPerCorrect);
+
+    const alerts = await h.prisma.anomalyAlert.findMany({ where: { sessionId: s.session.id } });
+    const fast = alerts.find((a) => a.rule === 'FAST_ANSWER');
+    expect(fast?.details).toMatchObject({ detectedByServerOnly: qs.length });
+    const ledger = await h.prisma.pointsLedger.findFirstOrThrow({
+      where: { userId, sessionId: s.session.id },
+    });
+    expect(ledger.onHold).toBe(true); // no cuenta para ganadores hasta que un admin resuelva
+  });
 });

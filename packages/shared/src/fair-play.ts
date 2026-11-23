@@ -14,7 +14,10 @@ export interface SessionEvaluationInput {
   questionCount: number;
   answers: {
     questionId: string;
+    /** Lo que declara el cliente: se puede falsear, solo sirve para sospechar. */
     clientElapsedMs: number;
+    /** Lo que midió el servidor (ver `serverObservedTimes`). */
+    serverObservedMs?: number | null;
     correct: boolean;
   }[];
   sessionDurationMs: number;
@@ -26,7 +29,9 @@ export interface SessionEvaluationInput {
 
 /**
  * Evalúa las 4 reglas de anomalía configurables por país (CLAUDE.md §9):
- * 1) `FAST_ANSWER`: alguna respuesta tiene `clientElapsedMs < rules.minAnswerMs` (ej. script que responde en 200 ms).
+ * 1) `FAST_ANSWER`: alguna respuesta llegó más rápido que `rules.minAnswerMs` según el **servidor**
+ *    o según lo que declara el cliente (ej. script que responde en 200 ms). Declarar un tiempo mayor
+ *    no lo evita: cuenta el menor de los dos.
  * 2) `SHORT_SESSION`: duración total de la sesión < `questionCount * rules.anomaly.minSessionMsPerQuestion`.
  * 3) `PERFECT_STREAK`: la partida actual es 100 % perfecta y alcanza `rules.anomaly.perfectStreakSessions` seguidas.
  * 4) `HIGH_FREQUENCY`: el usuario supera `rules.anomaly.maxSessionsPerHour` en los últimos 60 minutos.
@@ -36,14 +41,21 @@ export function evaluateSessionAnomalies(input: SessionEvaluationInput): Detecte
   const { rules } = input;
 
   // 1. Respuestas más rápidas que minAnswerMs
-  const fastAnswers = input.answers.filter((a) => a.clientElapsedMs < rules.minAnswerMs);
+  const effectiveMs = (a: SessionEvaluationInput['answers'][number]) =>
+    a.serverObservedMs === null || a.serverObservedMs === undefined
+      ? a.clientElapsedMs
+      : Math.min(a.clientElapsedMs, a.serverObservedMs);
+  const fastAnswers = input.answers.filter((a) => effectiveMs(a) < rules.minAnswerMs);
   if (fastAnswers.length > 0) {
     out.push({
       rule: 'FAST_ANSWER',
       details: {
         minAnswerMs: rules.minAnswerMs,
         fastAnswerCount: fastAnswers.length,
-        minObservedMs: Math.min(...fastAnswers.map((a) => a.clientElapsedMs)),
+        minObservedMs: Math.min(...fastAnswers.map(effectiveMs)),
+        // Cuántas solo se ven rápidas con el reloj del servidor (el cliente declaró más tiempo).
+        detectedByServerOnly: fastAnswers.filter((a) => a.clientElapsedMs >= rules.minAnswerMs)
+          .length,
       },
     });
   }
@@ -93,6 +105,32 @@ export function evaluateSessionAnomalies(input: SessionEvaluationInput): Detecte
 }
 
 /**
+ * Tiempo por respuesta según el **servidor**, a partir de cuándo llegó cada una (`receivedAt`):
+ * intervalo desde la llegada anterior (o desde el inicio de la partida). Las respuestas que llegaron
+ * juntas en un lote se reparten ese intervalo. Un lote enviado al reconectar tras jugar sin red tiene
+ * un intervalo largo y no parece rápido; un script que responde en ráfaga sí.
+ */
+export function serverObservedTimes(
+  startedAt: Date,
+  answers: { questionId: string; receivedAt: Date }[],
+): Map<string, number> {
+  const groups = new Map<number, string[]>();
+  for (const a of answers) {
+    const t = a.receivedAt.getTime();
+    groups.set(t, [...(groups.get(t) ?? []), a.questionId]);
+  }
+  const out = new Map<string, number>();
+  let prev = startedAt.getTime();
+  for (const t of [...groups.keys()].sort((x, y) => x - y)) {
+    const ids = groups.get(t)!;
+    const each = Math.max(0, t - prev) / ids.length;
+    for (const id of ids) out.set(id, Math.round(each));
+    prev = t;
+  }
+  return out;
+}
+
+/**
  * Calcula los puntos de una respuesta individual:
  * - Si es incorrecta -> 0.
  * - Si es correcta -> `pointsPerCorrect` + bono de velocidad calculado exclusivamente con
@@ -101,11 +139,15 @@ export function evaluateSessionAnomalies(input: SessionEvaluationInput): Detecte
 export function calculateAnswerPoints(
   correct: boolean,
   serverElapsedMs: number | null,
-  rules: Pick<PointsRules, 'pointsPerCorrect' | 'speedBonusMax' | 'secondsPerQuestion'>,
+  rules: Pick<
+    PointsRules,
+    'pointsPerCorrect' | 'speedBonusMax' | 'secondsPerQuestion' | 'minAnswerMs'
+  >,
 ): number {
   if (!correct) return 0;
   let bonus = 0;
-  if (serverElapsedMs !== null && serverElapsedMs >= 0) {
+  // Más rápido que `minAnswerMs` es imposible para una persona: sin bono (y queda como anomalía).
+  if (serverElapsedMs !== null && serverElapsedMs >= rules.minAnswerMs) {
     const windowMs = rules.secondsPerQuestion * 1000;
     if (serverElapsedMs < windowMs && windowMs > 0) {
       const ratio = Math.max(0, 1 - serverElapsedMs / windowMs);

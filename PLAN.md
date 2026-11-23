@@ -14,7 +14,8 @@ Estado: **en curso** · Fecha: 2026-11-23 · Origen: `docs/revision-arquitectura
 | M4  | Traslados: puntos y actividad atribuidos a la farmacia donde se jugó (ADR-025); perfil cuenta todas las partidas del periodo; panel muestra puntos de anomalías descartadas     | ✅     |
 | A5  | Redis caído: la API arranca, juega desde PostgreSQL, rate limit falla abierto (OTP cerrado con 503), apagado sin cuelgues (ADR-026)                                             | ✅     |
 | A6  | PWA renueva el token ante un 401 (una sola renovación, sin desmontar la partida); E2E con Playwright ejecutable y en CI (ADR-027, ADR-028)                                      | ✅     |
-| —   | Pendiente: C3, resto de A3 (importaciones, anomalías y exportaciones en cola), A1, A2, A4, A7, M1–M3, M5–M8 (ver la sección 5 del reporte)                                      | ⏳     |
+| A1  | FAST_ANSWER con el tiempo observado por el servidor (también en lotes) y sin bono si la respuesta es imposiblemente rápida (ADR-029)                                            | ✅     |
+| —   | Pendiente: C3, resto de A3 (importaciones, anomalías y exportaciones en cola), A2, A4, A7, M1–M3, M5–M8 (ver la sección 5 del reporte)                                          | ⏳     |
 
 **Riesgo de despliegue:** si una base existente ya tiene movimientos `GAME` duplicados, la migración `20261123000000_ledger_game_unique` falla a propósito. Ver ADR-021 antes de desplegar.
 

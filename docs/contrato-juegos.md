@@ -78,6 +78,8 @@ sequenceDiagram
   SDK-->>J: GameResult
 ```
 
+**Tiempos (ADR-029).** `clientElapsedMs` es informativo: el servidor mide cuándo llega cada respuesta y con eso calcula el bono de velocidad y detecta respuestas demasiado rápidas. Un juego **no** debe agrupar respuestas a propósito ni enviarlas en ráfaga: el SDK ya envía una por una con conexión y en un solo lote al reconectar, y así lo espera el servidor.
+
 ---
 
 ## 4. Ejemplo Mínimo de Juego

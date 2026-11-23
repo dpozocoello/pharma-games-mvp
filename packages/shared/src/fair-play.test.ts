@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyDailyCaps, calculateAnswerPoints, evaluateSessionAnomalies } from './fair-play';
+import {
+  applyDailyCaps,
+  calculateAnswerPoints,
+  evaluateSessionAnomalies,
+  serverObservedTimes,
+} from './fair-play';
 import { DEFAULT_POINTS_RULES } from './schemas';
 import { localDay } from './time';
 
@@ -76,5 +81,74 @@ describe('Puntos, topes por zona horaria y detección de anomalías (Iteración 
 
     const rulesTriggered = anomalies.map((a) => a.rule);
     expect(rulesTriggered).toEqual(expect.arrayContaining(['PERFECT_STREAK', 'HIGH_FREQUENCY']));
+  });
+});
+
+describe('Tiempos del servidor contra un cliente que miente (§9)', () => {
+  const t0 = new Date('2026-11-23T15:00:00.000Z');
+  const at = (ms: number) => new Date(t0.getTime() + ms);
+  const base = {
+    rules: DEFAULT_POINTS_RULES,
+    questionCount: 3,
+    sessionDurationMs: 60_000,
+    priorConsecutivePerfectSessions: 0,
+    sessionsInLastHour: 1,
+  };
+
+  it('el servidor mide el intervalo entre llegadas; en un lote lo reparte entre sus respuestas', () => {
+    const times = serverObservedTimes(t0, [
+      { questionId: 'q1', receivedAt: at(5_000) },
+      // q2 y q3 llegaron juntas (lote) 2 s después: 1 s cada una
+      { questionId: 'q2', receivedAt: at(7_000) },
+      { questionId: 'q3', receivedAt: at(7_000) },
+    ]);
+    expect(times).toEqual(
+      new Map([
+        ['q1', 5_000],
+        ['q2', 1_000],
+        ['q3', 1_000],
+      ]),
+    );
+  });
+
+  it('FAST_ANSWER salta con el tiempo del servidor aunque el cliente declare 5 s', () => {
+    const anomalies = evaluateSessionAnomalies({
+      ...base,
+      answers: ['q1', 'q2', 'q3'].map((questionId) => ({
+        questionId,
+        clientElapsedMs: 5_000, // mentira
+        serverObservedMs: 200, // lo que vio el servidor
+        correct: true,
+      })),
+    });
+    const fast = anomalies.find((a) => a.rule === 'FAST_ANSWER');
+    expect(fast?.details).toMatchObject({ fastAnswerCount: 3, minObservedMs: 200 });
+  });
+
+  it('un lote enviado al reconectar tras jugar sin red no es anomalía', () => {
+    // Respondió las 3 sin conexión durante 45 s y el SDK las envió juntas al volver la red.
+    const times = serverObservedTimes(t0, [
+      { questionId: 'q1', receivedAt: at(45_000) },
+      { questionId: 'q2', receivedAt: at(45_000) },
+      { questionId: 'q3', receivedAt: at(45_000) },
+    ]);
+    const anomalies = evaluateSessionAnomalies({
+      ...base,
+      answers: ['q1', 'q2', 'q3'].map((questionId) => ({
+        questionId,
+        clientElapsedMs: 15_000,
+        serverObservedMs: times.get(questionId)!,
+        correct: false,
+      })),
+    });
+    expect(anomalies.map((a) => a.rule)).not.toContain('FAST_ANSWER');
+  });
+
+  it('sin bono de velocidad si la respuesta llegó más rápido que minAnswerMs', () => {
+    // 50 ms desde la respuesta anterior: imposible para una persona, solo el punto base.
+    expect(calculateAnswerPoints(true, 50, DEFAULT_POINTS_RULES)).toBe(10);
+    expect(
+      calculateAnswerPoints(true, DEFAULT_POINTS_RULES.minAnswerMs, DEFAULT_POINTS_RULES),
+    ).toBe(15);
   });
 });
