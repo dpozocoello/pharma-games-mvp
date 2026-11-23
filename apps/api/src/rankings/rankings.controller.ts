@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  rankingLimitSchema,
   rankingQueryScopeSchema,
   type MyRankingAndProfileResponse,
   type PharmacyManagerSummaryResponse,
@@ -21,6 +22,7 @@ import { ZodPipe } from '../common/zod';
 import { RankingsService } from './rankings.service';
 
 const scopePipe = new ZodPipe(rankingQueryScopeSchema.default('individual'));
+const limitPipe = new ZodPipe(rankingLimitSchema);
 
 @ApiTags('rankings y gerente')
 @ApiBearerAuth()
@@ -34,8 +36,9 @@ export class RankingsController {
   getRankings(
     @CurrentUser() p: Principal,
     @Query('scope', scopePipe) scope: RankingQueryScope,
+    @Query('limit', limitPipe) limit: number,
   ): Promise<RankingsResponse> {
-    return this.rankings.getRankings(p, scope);
+    return this.rankings.getRankings(p, scope, limit);
   }
 
   @RequireApp('pwa')

@@ -1,9 +1,18 @@
-import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import type { RankingPeriod } from '@prisma/client';
 import {
   computePharmacyRanking,
   localDay,
   maskPhone,
   rankingPeriodBounds,
+  sanitizeCsvCell,
   type MyRankingAndProfileResponse,
   type PharmacyManagerSummaryResponse,
   type RankingQueryScope,
@@ -16,20 +25,141 @@ import { AdminCountriesService } from '../admin/admin-countries.service';
 import { AuditService } from '../audit/audit.service';
 import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
+import { ENV, type Env } from '../config/env';
 import { CountryConfigService } from '../countries/country-config.service';
 import { PrismaService } from '../infra/prisma.service';
-import { RedisService } from '../infra/redis.service';
+import { LiveRankingStore, type LiveScope } from './live-ranking.store';
+
+/** Filas por defecto y máximas de `GET /rankings` (la lista completa no viaja al celular). */
+export const RANKING_DEFAULT_LIMIT = 50;
+export const RANKING_MAX_LIMIT = 200;
+/** Si otra instancia está calculando la primera generación, se espera hasta esto antes de calcular. */
+const COLD_WAIT_MS = 3_000;
+
+type Standings = Awaited<ReturnType<RankingsService['computePeriodStandings']>>;
+
+/** Lecturas de una clasificación ya calculada (desde Redis o, si Redis falla, desde memoria). */
+interface StandingsView {
+  top(scope: LiveScope, limit: number): Promise<{ rows: RankingRowView[]; total: number }>;
+  row(scope: LiveScope, entityId: string): Promise<RankingRowView | null>;
+  userPoints(userId: string): Promise<number>;
+}
+
+function scopeRows(s: Standings, scope: LiveScope): RankingRowView[] {
+  return scope === 'individual'
+    ? s.individualRows
+    : scope === 'pharmacy'
+      ? s.pharmacyRows
+      : s.countryRows;
+}
+
+function memoryView(s: Standings): StandingsView {
+  return {
+    top: async (scope, limit) => {
+      const rows = scopeRows(s, scope);
+      return { rows: rows.slice(0, limit), total: rows.length };
+    },
+    row: async (scope, id) => scopeRows(s, scope).find((r) => r.entityId === id) ?? null,
+    userPoints: async (id) => s.eligibleByUser.get(id) ?? 0,
+  };
+}
 
 @Injectable()
 export class RankingsService {
+  private readonly logger = new Logger(RankingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    private readonly live: LiveRankingStore,
     private readonly countries: CountryConfigService,
     private readonly adminCountries: AdminCountriesService,
     private readonly anomalies: AdminAnomaliesService,
     private readonly audit: AuditService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  // ───────────────────────────── Ranking en vivo (ADR-023) ─────────────────────────────
+
+  /**
+   * Vista de la clasificación de un periodo para lecturas de la PWA.
+   * - Sirve la generación vigente de Redis; si está vieja (cambió algo y pasó el intervalo mínimo,
+   *   o superó la edad máxima), **una** instancia la reconstruye en segundo plano y mientras tanto
+   *   todas siguen sirviendo la anterior.
+   * - Sin generación (arranque en frío) espera a quien la calcula o la calcula ella misma.
+   * - Si Redis falla, calcula desde PostgreSQL (lento pero correcto).
+   */
+  private async standingsView(countryId: string, period: RankingPeriod): Promise<StandingsView> {
+    try {
+      let cur = await this.live.current(period.id);
+      const age = cur ? Date.now() - cur.generatedAtMs : Number.POSITIVE_INFINITY;
+      const stale =
+        !cur ||
+        age >= this.env.RANKING_LIVE_MAX_AGE_MS ||
+        (age >= this.env.RANKING_LIVE_MIN_REBUILD_MS && (await this.live.isDirty(countryId)));
+
+      if (stale) {
+        const token = await this.live.tryLock(period.id);
+        if (token) {
+          const job = this.rebuildLive(countryId, period, token);
+          if (!cur) return memoryView(await job);
+          job.catch((e: unknown) =>
+            this.logger.warn(`No se pudo reconstruir el ranking en vivo: ${String(e)}`),
+          );
+        } else if (!cur) {
+          cur = await this.waitForGeneration(period.id);
+          if (!cur) return memoryView(await this.computePeriodStandings(countryId, period.id));
+        }
+      }
+
+      const gen = cur!.gen;
+      return {
+        top: (scope, limit) => this.live.top(period.id, gen, scope, limit),
+        row: (scope, id) => this.live.row(period.id, gen, scope, id),
+        userPoints: (id) => this.live.userPoints(period.id, gen, id),
+      };
+    } catch (e) {
+      this.logger.warn(`Ranking en vivo no disponible, se calcula desde PostgreSQL: ${String(e)}`);
+      return memoryView(await this.computePeriodStandings(countryId, period.id));
+    }
+  }
+
+  private async rebuildLive(
+    countryId: string,
+    period: RankingPeriod,
+    lockToken: string,
+  ): Promise<Standings> {
+    try {
+      // Se limpia ANTES de leer: un cambio durante el cálculo vuelve a marcar el país.
+      await this.live.clearDirty(countryId);
+      const startedAt = Date.now();
+      const standings = await this.computePeriodStandings(countryId, period.id);
+      await this.live.publish(
+        period.id,
+        {
+          rows: {
+            individual: standings.individualRows,
+            pharmacy: standings.pharmacyRows,
+            country: standings.countryRows,
+          },
+          pointsByUser: standings.eligibleByUser,
+        },
+        startedAt,
+      );
+      return standings;
+    } finally {
+      await this.live.unlock(period.id, lockToken).catch(() => undefined);
+    }
+  }
+
+  private async waitForGeneration(periodId: string) {
+    const deadline = Date.now() + COLD_WAIT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      const cur = await this.live.current(periodId);
+      if (cur) return cur;
+    }
+    return null;
+  }
 
   private async getCurrentOrLatestPeriod(countryId: string) {
     const open = await this.prisma.rankingPeriod.findFirst({
@@ -47,8 +177,9 @@ export class RankingsService {
   }
 
   /**
-   * Calcula las tablas de ranking en vivo (`INDIVIDUAL`, `PHARMACY`, `COUNTRY`) de un país y periodo,
-   * sincronizando los sorted sets de Redis (`ZADD`) cuando Redis está conectado.
+   * Calcula desde PostgreSQL (fuente de verdad) las tablas `INDIVIDUAL`, `PHARMACY` y `COUNTRY` de un
+   * país y periodo. Es costoso (lee todo el periodo): las lecturas de la PWA usan `standingsView`;
+   * esto queda para reconstruir la vista en vivo, la foto diaria, el cierre y la exportación.
    */
   async computePeriodStandings(countryId: string, periodId: string) {
     const period = await this.prisma.rankingPeriod.findUnique({ where: { id: periodId } });
@@ -158,23 +289,6 @@ export class RankingsService {
       },
     ];
 
-    // Sincronizar en Redis Sorted Sets (ZADD) para lecturas en vivo (§11)
-    try {
-      const zKeyInd = `rank:${period.id}:INDIVIDUAL`;
-      const zKeyPh = `rank:${period.id}:PHARMACY`;
-      const redisZadd = this.redis.client as unknown as {
-        zadd?: (key: string, score: number, member: string) => Promise<unknown>;
-      };
-      for (const r of individualRows) {
-        await redisZadd.zadd?.(zKeyInd, r.points, r.entityId);
-      }
-      for (const r of pharmacyRows) {
-        await redisZadd.zadd?.(zKeyPh, r.points, r.entityId);
-      }
-    } catch {
-      // Si el mock de Redis no implementa zadd, continúa sin interrupción.
-    }
-
     return {
       period,
       country,
@@ -188,28 +302,46 @@ export class RankingsService {
 
   // ───────────────────────────── GET /rankings ─────────────────────────────
 
-  async getRankings(p: Principal, scope: RankingQueryScope): Promise<RankingsResponse> {
+  async getRankings(
+    p: Principal,
+    scope: RankingQueryScope,
+    limit = RANKING_DEFAULT_LIMIT,
+  ): Promise<RankingsResponse> {
     if (!p.countryId) {
       throw new ForbiddenException('Se requiere un país en la cuenta para consultar rankings');
     }
-    const period = await this.getCurrentOrLatestPeriod(p.countryId);
-    const standings = await this.computePeriodStandings(p.countryId, period.id);
+    const countryId = p.countryId;
+    const period = await this.getCurrentOrLatestPeriod(countryId);
 
-    const latestSnap = await this.prisma.rankingSnapshot.findFirst({
-      where: { periodId: period.id },
-      orderBy: { snapshotDay: 'desc' },
-      select: { snapshotDay: true },
-    });
-
-    const rows =
+    // "Mi fila" del ámbito pedido: yo, mi farmacia actual o mi país.
+    const meEntityId =
       scope === 'individual'
-        ? standings.individualRows
-        : scope === 'pharmacy'
-          ? standings.pharmacyRows
-          : standings.countryRows;
+        ? p.userId
+        : scope === 'country'
+          ? countryId
+          : ((
+              await this.prisma.pharmacyAssignment.findFirst({
+                where: { userId: p.userId, to: null },
+                select: { pharmacyId: true },
+              })
+            )?.pharmacyId ?? null);
+
+    const [view, latestSnap, country] = await Promise.all([
+      this.standingsView(countryId, period),
+      this.prisma.rankingSnapshot.findFirst({
+        where: { periodId: period.id },
+        orderBy: { snapshotDay: 'desc' },
+        select: { snapshotDay: true },
+      }),
+      this.countries.getById(countryId),
+    ]);
+    const [{ rows, total }, me] = await Promise.all([
+      view.top(scope, Math.min(Math.max(1, limit), RANKING_MAX_LIMIT)),
+      meEntityId ? view.row(scope, meEntityId) : Promise.resolve(null),
+    ]);
 
     return {
-      countryCode: standings.country?.code ?? p.countryCode ?? 'PE',
+      countryCode: country?.code ?? p.countryCode ?? 'PE',
       period: {
         id: period.id,
         startsAt: period.startsAt.toISOString(),
@@ -218,6 +350,8 @@ export class RankingsService {
       },
       scope,
       rows,
+      totalRows: total,
+      me,
       latestSnapshotDay: latestSnap?.snapshotDay ?? null,
     };
   }
@@ -286,7 +420,7 @@ export class RankingsService {
       throw new ForbiddenException('Se requiere país asociado');
     }
     const period = await this.getCurrentOrLatestPeriod(p.countryId);
-    const standings = await this.computePeriodStandings(p.countryId, period.id);
+    const view = await this.standingsView(p.countryId, period);
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: p.userId },
@@ -328,18 +462,20 @@ export class RankingsService {
         brandName: bc.brand.name,
       }));
 
-    const myIndRow = standings.individualRows.find((r) => r.entityId === p.userId);
     const currentPharmacy = user.assignments[0]?.pharmacy ?? null;
-    const myPhRow = currentPharmacy
-      ? standings.pharmacyRows.find((r) => r.entityId === currentPharmacy.id)
-      : undefined;
+    const [myIndRow, myPhRow, totalPoints, country] = await Promise.all([
+      view.row('individual', p.userId),
+      currentPharmacy ? view.row('pharmacy', currentPharmacy.id) : Promise.resolve(null),
+      view.userPoints(user.id),
+      this.countries.getById(p.countryId),
+    ]);
 
     return {
       userId: user.id,
       displayName: user.displayName,
-      countryCode: standings.country?.code ?? p.countryCode ?? 'PE',
+      countryCode: country?.code ?? p.countryCode ?? 'PE',
       periodId: period.id,
-      totalPoints: standings.eligibleByUser.get(user.id) ?? 0,
+      totalPoints,
       individualPosition: myIndRow?.position ?? null,
       pharmacy: currentPharmacy
         ? {
@@ -382,7 +518,7 @@ export class RankingsService {
 
     const pharmacy = managerAssign.pharmacy;
     const period = await this.getCurrentOrLatestPeriod(p.countryId);
-    const standings = await this.computePeriodStandings(p.countryId, period.id);
+    const view = await this.standingsView(p.countryId, period);
 
     const teamAssignments = await this.prisma.pharmacyAssignment.findMany({
       where: { pharmacyId: pharmacy.id, to: null },
@@ -433,7 +569,7 @@ export class RankingsService {
         sessionsInPeriod: sessionCountByClerk.get(c.id) ?? 0,
       }));
 
-    const phRankRow = standings.pharmacyRows.find((r) => r.entityId === pharmacy.id);
+    const phRankRow = await view.row('pharmacy', pharmacy.id);
 
     return {
       pharmacy: {
@@ -553,6 +689,7 @@ export class RankingsService {
       );
     });
 
+    await this.live.markDirty(period.countryId);
     const updatedPeriod = await this.prisma.rankingPeriod.findUniqueOrThrow({
       where: { id: period.id },
     });
@@ -603,10 +740,10 @@ export class RankingsService {
             ? standings.pharmacyRows
             : standings.countryRows;
       const match = list.find((r) => r.entityId === w.entityId);
-      const safeName = (match?.displayName ?? w.entityId).replace(/"/g, '""');
+      const safeName = sanitizeCsvCell(match?.displayName ?? w.entityId);
       const pts = match?.points ?? 0;
       lines.push(
-        `${period.id},${period.country.code},${w.scope},${w.position},${w.entityId},"${safeName}",${pts}`,
+        `${period.id},${period.country.code},${w.scope},${w.position},${w.entityId},${safeName},${pts}`,
       );
     }
 

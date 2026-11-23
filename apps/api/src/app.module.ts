@@ -39,6 +39,7 @@ import { MeService } from './me/me.service';
 import { MeasurementController } from './measurement/measurement.controller';
 import { MeasurementService } from './measurement/measurement.service';
 import { RankingsController } from './rankings/rankings.controller';
+import { LiveRankingStore } from './rankings/live-ranking.store';
 import { RankingsService } from './rankings/rankings.service';
 
 function messagingProviders(env: Env): Provider[] {
@@ -129,6 +130,7 @@ export class AppModule {
         ConsentService,
         MeService,
         GamesService,
+        LiveRankingStore,
         RankingsService,
         MeasurementService,
         AdminCountriesService,

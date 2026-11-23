@@ -7,6 +7,7 @@ import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
 import { CountryConfigService } from '../countries/country-config.service';
 import { PrismaService } from '../infra/prisma.service';
+import { LiveRankingStore } from '../rankings/live-ranking.store';
 import { AdminCountriesService } from './admin-countries.service';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class AdminAnomaliesService {
     private readonly countries: AdminCountriesService,
     private readonly countryCache: CountryConfigService,
     private readonly audit: AuditService,
+    private readonly liveRanking: LiveRankingStore,
   ) {}
 
   async listAnomalies(
@@ -166,6 +168,8 @@ export class AdminAnomaliesService {
       );
     });
 
+    // Descartar devuelve los puntos al ranking; confirmar los mantiene fuera.
+    await this.liveRanking.markDirty(alert.countryId);
     const list = await this.listAnomalies(p, { countryCode: alert.country.code });
     return list.find((a) => a.id === alertId)!;
   }

@@ -32,6 +32,7 @@ import { ENV, type Env } from '../config/env';
 import { CountryConfigService } from '../countries/country-config.service';
 import { PrismaService } from '../infra/prisma.service';
 import { RedisService } from '../infra/redis.service';
+import { LiveRankingStore } from '../rankings/live-ranking.store';
 
 interface SessionTokenPayload {
   sessionId: string;
@@ -68,6 +69,7 @@ export class GamesService {
     private readonly redis: RedisService,
     private readonly countries: CountryConfigService,
     @Inject(ENV) private readonly env: Env,
+    private readonly liveRanking: LiveRankingStore,
   ) {}
 
   // ───────────────────────────── Token HMAC de Partida (§9) ─────────────────────────────
@@ -702,6 +704,8 @@ export class GamesService {
     }
 
     if (!outcome) return this.finishedResult(session.id);
+    // Toda partida terminada cambia el ranking (puntos o dependiente activo).
+    await this.liveRanking.markDirty(country.id);
 
     if (outcome.allowedPoints > 0) {
       const pts = outcome.allowedPoints;

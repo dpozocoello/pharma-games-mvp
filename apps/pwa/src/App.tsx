@@ -642,6 +642,20 @@ export function App() {
                 </li>
               ))}
             </ul>
+            {(() => {
+              // Mi posición, aunque esté fuera del top que viaja al celular.
+              const data = rankingsQuery.data;
+              const me = data?.me;
+              if (!data || !me || data.rows.some((r) => r.entityId === me.entityId)) return null;
+              return (
+                <p className={styles.muted} style={{ marginTop: 12 }}>
+                  <strong>
+                    Tu posición: #{me.position} de {data.totalRows}
+                  </strong>{' '}
+                  · {me.points} pts
+                </p>
+              );
+            })()}
           </section>
         )}
 

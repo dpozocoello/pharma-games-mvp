@@ -28,6 +28,7 @@ import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
 import { ENV, type Env } from '../config/env';
 import { PrismaService } from '../infra/prisma.service';
+import { LiveRankingStore } from '../rankings/live-ranking.store';
 import { AdminCountriesService } from './admin-countries.service';
 
 export interface PharmacyView {
@@ -65,6 +66,7 @@ export class AdminUsersPharmaciesService {
     private readonly countries: AdminCountriesService,
     private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
+    private readonly liveRanking: LiveRankingStore,
   ) {}
 
   // ───────────────────────────── Farmacias ─────────────────────────────
@@ -375,6 +377,7 @@ export class AdminUsersPharmaciesService {
       );
     });
 
+    if (user.countryId) await this.liveRanking.markDirty(user.countryId);
     return this.getUserView(p, userId);
   }
 
@@ -419,6 +422,7 @@ export class AdminUsersPharmaciesService {
       );
     });
 
+    if (user.countryId) await this.liveRanking.markDirty(user.countryId);
     return this.getUserView(p, userId);
   }
 

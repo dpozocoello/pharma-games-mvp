@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const rankingQueryScopeSchema = z.enum(['individual', 'pharmacy', 'country']);
 export type RankingQueryScope = z.infer<typeof rankingQueryScopeSchema>;
+/** `?limit=` de `GET /rankings`: 1 a 200, 50 por defecto. */
+export const rankingLimitSchema = z.coerce.number().int().min(1).max(200).default(50);
 
 export interface PharmacyRankingInput {
   pharmacyId: string;
@@ -85,7 +87,12 @@ export interface RankingsResponse {
     status: 'OPEN' | 'CLOSING' | 'CLOSED';
   };
   scope: RankingQueryScope;
+  /** Las primeras `limit` filas (por defecto 50), no la clasificación completa. */
   rows: RankingRowView[];
+  /** Total de filas del ámbito en el periodo. */
+  totalRows: number;
+  /** Fila de quien consulta (yo, mi farmacia o mi país), aunque no esté en `rows`. */
+  me: RankingRowView | null;
   latestSnapshotDay: string | null;
 }
 

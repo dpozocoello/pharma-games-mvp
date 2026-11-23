@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-23 · Alcance: todo el repositorio (commit `31f0286`) contrastado con `CLAUDE.md` · Revisor: análisis independiente, sin cambios en el código.
 
-> **Actualización 2026-11-23:** C1 y C4 están corregidos y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
+> **Actualización 2026-11-23:** C1, C2, C4 y B2 están corregidos (C2 medido en `docs/informe-carga.md` §3.4) y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
 
 ## 1. Resumen ejecutivo
 
@@ -46,7 +46,7 @@ Pero **el MVP no está listo para el piloto**. `PLAN.md` y `docs/informe-carga.m
 
 **Corrección:** dentro de la transacción, `updateMany({ where: { id, status: 'IN_PROGRESS' } })` y abortar si `count !== 1`. Agregar un índice único parcial `PointsLedger(sessionId) WHERE reason = 'GAME'`. Llevar los topes a un `INCRBY` atómico en Redis (o a un `SELECT … FOR UPDATE` sobre una fila de tope por usuario y día) antes de acreditar. Agregar una prueba de integración con PostgreSQL real que lance N `finish` concurrentes.
 
-### 🔴 C2 — Rankings recalculados por completo en cada solicitud
+### 🔴 C2 — ✅ Corregido el 2026-11-23 (ADR-023) — Rankings recalculados por completo en cada solicitud
 
 `apps/api/src/rankings/rankings.service.ts:53-185`
 
@@ -157,7 +157,7 @@ No hay métricas Prometheus (`/metrics`), ni OpenTelemetry, ni Dockerfile, ni Te
 ### 🟢 Bajos
 
 - **B1** `sourcemap: true` en el build de la PWA publica los mapas en producción (`apps/pwa/vite.config.ts:29`). Conviene usar `'hidden'`.
-- **B2** `winners.csv` escapa las comillas, pero no aplica la protección contra inyección de fórmulas que ya existe en `@pharma/shared/csv` (`rankings.service.ts:600-610`).
+- **B2** ✅ Corregido el 2026-11-23. `winners.csv` escapa las comillas, pero no aplica la protección contra inyección de fórmulas que ya existe en `@pharma/shared/csv` (`rankings.service.ts:600-610`).
 - **B3** El paso de semillas del CI se ejecuta dos veces a propósito (idempotencia), pero sin un `prisma migrate reset` previo eso no prueba que una base limpia funcione desde cero.
 
 ## 4. Fortalezas (conservar)

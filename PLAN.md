@@ -2,13 +2,15 @@
 
 Estado: **en curso** · Fecha: 2026-11-23 · Origen: `docs/revision-arquitectura.md`
 
-| #   | Tarea                                                                                                                                                  | Estado |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| C4  | CI: lockfile sincronizado, `pnpm size` después del build, `pnpm test:int` en CI, `AUTH_TOKEN_SECRET` en CI, override de `effect` (ADR-022)             | ✅     |
-| C4  | `PrismaService` usa la URL de la configuración validada (las pruebas de integración usaban la base equivocada) y limpieza de países Z\* al re-ejecutar | ✅     |
-| C1  | `finish` atómico (bloqueo por usuario + reclamo condicional), `FOR SHARE` en respuestas, índice único parcial en `PointsLedger` (ADR-021)              | ✅     |
-| C1  | Pruebas de concurrencia contra PostgreSQL real (`test/integration/fair-play.int.test.ts`)                                                              | ✅     |
-| —   | Pendiente: C2, C3, A1–A7, M1–M8 (ver la sección 5 del reporte)                                                                                         | ⏳     |
+| #   | Tarea                                                                                                                                                                           | Estado |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| C4  | CI: lockfile sincronizado, `pnpm size` después del build, `pnpm test:int` en CI, `AUTH_TOKEN_SECRET` en CI, override de `effect` (ADR-022)                                      | ✅     |
+| C4  | `PrismaService` usa la URL de la configuración validada (las pruebas de integración usaban la base equivocada) y limpieza de países Z\* al re-ejecutar                          | ✅     |
+| C1  | `finish` atómico (bloqueo por usuario + reclamo condicional), `FOR SHARE` en respuestas, índice único parcial en `PointsLedger` (ADR-021)                                       | ✅     |
+| C1  | Pruebas de concurrencia contra PostgreSQL real (`test/integration/fair-play.int.test.ts`)                                                                                       | ✅     |
+| C2  | Ranking en vivo materializado en Redis con reconstrucción única desde PostgreSQL, `limit`/`me`/`totalRows` en `GET /rankings` (ADR-023); medido en `docs/informe-carga.md` §3.4 | ✅     |
+| B2  | `winners.csv` neutraliza fórmulas con `sanitizeCsvCell`                                                                                                                         | ✅     |
+| —   | Pendiente: C3, A1–A7, M1–M8 (ver la sección 5 del reporte)                                                                                                                      | ⏳     |
 
 **Riesgo de despliegue:** si una base existente ya tiene movimientos `GAME` duplicados, la migración `20261123000000_ledger_game_unique` falla a propósito. Ver ADR-021 antes de desplegar.
 

@@ -20,6 +20,7 @@ Estado: Iteración 1 (Entrada única, ingreso OTP, países, configuración en ca
 
 - **Sin estado:** cualquier instancia atiende cualquier solicitud. El estado vive en PostgreSQL y Redis.
 - **Multi-país:** toda entidad de negocio lleva `countryId`; agregar un país es insertar `Country` + `CountryConfig` desde `POST /api/v1/admin/countries`.
+- **Ranking en vivo (ADR-023):** las lecturas leen una clasificación materializada en Redis; una sola instancia la reconstruye desde PostgreSQL cuando algo cambió (como mucho cada 10 s). La foto diaria, el cierre y los ganadores se calculan directo desde PostgreSQL.
 - **El cliente nunca puntúa:** las preguntas se proyectan con `toPublicQuestion` (lista blanca, sin `correctAnswer`).
 
 ## Paquetes

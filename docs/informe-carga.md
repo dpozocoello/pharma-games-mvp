@@ -77,3 +77,15 @@ Verificado en CI con `pnpm size` (`scripts/check-bundle-size.mjs`) después de `
 - **Peso de `@pharma/game-trivia`**: **< 10 KB** (límite máximo: **≤ 1,5 MB**).
 - **Peso de `@pharma/game-true-false`**: **< 10 KB** (límite máximo: **≤ 1,5 MB**).
 - **Importación masiva CSV de 5.000 usuarios** (`apps/api/test/iteration2.test.ts`): **~1,1 segundos** (límite máximo: **< 60 segundos**).
+
+### 3.4 Medición del ranking en vivo (2026-11-23, ADR-023)
+
+Medición local y reproducible, **no** es el escenario k6 completo de §11 (ese sigue pendiente: ver `docs/revision-arquitectura.md`, C3). Una sola instancia de la API, PostgreSQL 16 y Redis 7 en la misma máquina que el generador de carga (50 conexiones concurrentes, 20 s; mezcla en partes iguales de `GET /rankings?scope=individual`, `GET /rankings?scope=pharmacy` y `GET /me/ranking`). Datos del tamaño de Perú: 5.064 usuarios, 300 farmacias, 200.000 partidas terminadas y movimientos en el periodo y 3.993 alertas abiertas.
+
+| Versión                                        | Solicitudes/s | p50       | p95       | p99       | Errores                                |
+| ---------------------------------------------- | ------------- | --------- | --------- | --------- | -------------------------------------- |
+| Antes (recalcula el país en cada lectura)      | 3,5           | 12.244 ms | 15.580 ms | 24.071 ms | 71 % (500: pool de PostgreSQL agotado) |
+| Después, sin cambios                           | 701,6         | 61,5 ms   | 94,7 ms   | 120,7 ms  | 0 %                                    |
+| Después, el país cambia cada 1 s (reconstruye) | 747,2         | 60,8 ms   | 104,7 ms  | 195,4 ms  | 0 %                                    |
+
+La primera lectura en frío (calcula y publica la primera generación del periodo) tardó 1,8 s.

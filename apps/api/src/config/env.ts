@@ -43,6 +43,12 @@ export const envSchema = z
     SMS_API_TOKEN: z.string().optional(),
     /** Ejecuta el worker de BullMQ en este proceso (se puede separar en otro servicio). */
     OTP_WORKER_ENABLED: bool,
+    /**
+     * Ranking en vivo (ADR-023): tras un cambio, se reconstruye como mucho cada MIN ms; sin cambios,
+     * se refresca igual cada MAX ms. El retraso visible del ranking es ~MIN más el tiempo del cálculo.
+     */
+    RANKING_LIVE_MIN_REBUILD_MS: z.coerce.number().int().min(0).default(10_000),
+    RANKING_LIVE_MAX_AGE_MS: z.coerce.number().int().min(1_000).default(300_000),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   })
   .transform((env) => ({
