@@ -21,10 +21,12 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:int": "turbo run test:int",
-    "size": "node scripts/check-bundle-size.mjs"
+    "size": "node scripts/check-bundle-size.mjs",
+    "test:e2e": "playwright test --trace off"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "1.63.0",
     "eslint": "^9.17.0",
     "globals": "^15.14.0",
     "prettier": "^3.4.2",

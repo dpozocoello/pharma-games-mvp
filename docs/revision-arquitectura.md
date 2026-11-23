@@ -129,7 +129,7 @@ En producción aparecen `tx.usageEvent?.create?.(...)`, `this.redis.client.incrb
 
 **Corrección:** fallar abierto (con un log y una métrica) para el límite general, y fallar cerrado solo en rutas sensibles (`/auth/otp/*`).
 
-### 🟠 A6 — El token de acceso vence a los 15 minutos sin renovación
+### 🟠 A6 — ✅ Corregido el 2026-11-23 (ADR-027) — El token de acceso vence a los 15 minutos sin renovación
 
 `apps/pwa/src/App.tsx:94`, `apps/pwa/src/api.ts`
 

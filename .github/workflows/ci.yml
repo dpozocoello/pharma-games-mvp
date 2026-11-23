@@ -63,3 +63,7 @@ jobs:
           pnpm exec prisma migrate deploy
           pnpm exec prisma db seed
           pnpm exec prisma db seed
+      - name: Navegadores de Playwright (Chromium para Pixel 5, WebKit para iPhone 12)
+        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: E2E móvil sobre el build (Pixel 5 e iPhone 12)
+        run: pnpm test:e2e

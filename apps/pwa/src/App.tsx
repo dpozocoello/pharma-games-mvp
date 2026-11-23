@@ -21,7 +21,9 @@ import {
   fetchRankings,
   finishGameSession,
   logoutSession,
+  onSessionTokenChange,
   refreshSession,
+  setSessionToken,
   requestOtp,
   startGameSession,
   submitKnowledgeTest,
@@ -38,6 +40,23 @@ export function App() {
   const [chosen, setChosen] = useState<string | null>(() => readChosenCountry(storage));
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
+
+  // El token vive en api.ts (se renueva solo ante un 401); aquí solo se refleja si hay sesión.
+  useEffect(
+    () =>
+      onSessionTokenChange((token) => {
+        setAccessToken(token);
+        if (!token) {
+          // La sesión de 90 días terminó (o se revocó): volver al ingreso con un aviso.
+          setMe((prev) => {
+            if (prev) setSessionEnded(true);
+            return null;
+          });
+        }
+      }),
+    [],
+  );
   const [restoring, setRestoring] = useState(true);
 
   // Estado del formulario OTP
@@ -63,28 +82,28 @@ export function App() {
 
   const canPlay = Boolean(accessToken && me && (!me.consent.required || me.consent.accepted));
   const catalog = useQuery({
-    queryKey: ['games-catalog', accessToken],
-    queryFn: () => fetchGamesCatalog(accessToken!),
+    queryKey: ['games-catalog', me?.id],
+    queryFn: () => fetchGamesCatalog(),
     enabled: canPlay,
   });
   const pendingTestsQuery = useQuery({
-    queryKey: ['pending-tests', accessToken],
-    queryFn: () => fetchPendingTests(accessToken!),
+    queryKey: ['pending-tests', me?.id],
+    queryFn: () => fetchPendingTests(),
     enabled: canPlay,
   });
   const rankingsQuery = useQuery({
-    queryKey: ['rankings', accessToken, rankingScope],
-    queryFn: () => fetchRankings(accessToken!, rankingScope),
+    queryKey: ['rankings', me?.id, rankingScope],
+    queryFn: () => fetchRankings(rankingScope),
     enabled: canPlay && pwaSection === 'rankings',
   });
   const myProfileQuery = useQuery({
-    queryKey: ['my-profile-ranking', accessToken],
-    queryFn: () => fetchMyRankingAndProfile(accessToken!),
+    queryKey: ['my-profile-ranking', me?.id],
+    queryFn: () => fetchMyRankingAndProfile(),
     enabled: canPlay && (pwaSection === 'profile' || pwaSection === 'games'),
   });
   const managerQuery = useQuery({
-    queryKey: ['manager-summary', accessToken],
-    queryFn: () => fetchManagerPharmacySummary(accessToken!),
+    queryKey: ['manager-summary', me?.id],
+    queryFn: () => fetchManagerPharmacySummary(),
     enabled: canPlay && me?.role === 'PHARMACY_MANAGER' && pwaSection === 'manager',
   });
 
@@ -94,7 +113,7 @@ export function App() {
     refreshSession()
       .then((res) => {
         if (!active || !res) return;
-        setAccessToken(res.accessToken);
+        setSessionToken(res.accessToken);
         setMe(res.me);
         if (res.me.country?.code) {
           saveChosenCountry(storage, res.me.country.code);
@@ -112,7 +131,7 @@ export function App() {
 
   // Montaje dinámico del módulo de juego cuando hay una sesión activa
   useEffect(() => {
-    if (!activeSession || !accessToken || !gameContainerRef.current) return;
+    if (!activeSession || !gameContainerRef.current) return;
     const container = gameContainerRef.current;
     let handle: GameHandle | null = null;
     let cancelled = false;
@@ -126,10 +145,10 @@ export function App() {
       limits: activeSession.limits,
       transport: {
         submitAnswersBatch: async (sessionId, token, answers) => {
-          await submitSessionAnswersBatch(accessToken, sessionId, token, answers);
+          await submitSessionAnswersBatch(sessionId, token, answers);
         },
         finishSession: async (sessionId, token) => {
-          const res = await finishGameSession(accessToken, sessionId, token);
+          const res = await finishGameSession(sessionId, token);
           await queryClient.invalidateQueries({ queryKey: ['games-catalog'] });
           return res;
         },
@@ -155,7 +174,8 @@ export function App() {
       handle?.unmount();
       ctx.dispose();
     };
-  }, [activeSession, accessToken, queryClient]);
+    // Sin `accessToken` en las dependencias: renovar el token no debe desmontar una partida en curso.
+  }, [activeSession, queryClient]);
 
   const currentCountry: PublicCountry | undefined = countries.data?.find(
     (c) => c.code === (me?.country?.code ?? chosen),
@@ -188,7 +208,8 @@ export function App() {
     try {
       const identifier: Identifier = { type: idType, value: idValue.trim() };
       const res = await verifyOtp(chosen, identifier, otpCode.trim());
-      setAccessToken(res.accessToken);
+      setSessionToken(res.accessToken);
+      setSessionEnded(false);
       setMe(res.me);
       if (res.me.country?.code) {
         saveChosenCountry(storage, res.me.country.code);
@@ -217,7 +238,7 @@ export function App() {
     setErrorMsg(null);
     setBusy(true);
     try {
-      const updated = await acceptConsent(accessToken, {
+      const updated = await acceptConsent({
         consentVersionId: me.consent.current.id,
       });
       setMe(updated);
@@ -236,7 +257,7 @@ export function App() {
     setErrorMsg(null);
     setBusy(true);
     try {
-      const started = await startGameSession(accessToken, gameId);
+      const started = await startGameSession(gameId);
       setActiveSession(started);
     } catch (err) {
       setErrorMsg(err instanceof ApiHttpError ? err.message : 'No se pudo iniciar la partida.');
@@ -255,7 +276,7 @@ export function App() {
         questionId: q.id,
         answer: testAnswers[q.id] ?? '',
       }));
-      const res = await submitKnowledgeTest(accessToken, activeTest.id, answers);
+      const res = await submitKnowledgeTest(activeTest.id, answers);
       setInfoMsg(
         `Test inicial de ${activeTest.brandName} completado: ${res.score}/${res.total} respuestas registradas.`,
       );
@@ -275,7 +296,7 @@ export function App() {
       await logoutSession();
     } finally {
       setActiveSession(null);
-      setAccessToken(null);
+      setSessionToken(null);
       setMe(null);
       setStep('identify');
       setOtpCode('');
@@ -846,6 +867,11 @@ export function App() {
               required
             />
 
+            {sessionEnded && !errorMsg && (
+              <p role="status" className={styles.muted}>
+                Tu sesión terminó. Ingresa de nuevo para seguir jugando.
+              </p>
+            )}
             {errorMsg && (
               <p role="alert" className={styles.alert}>
                 {errorMsg}

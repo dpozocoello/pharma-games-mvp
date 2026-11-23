@@ -76,15 +76,83 @@ export async function verifyOtp(
   return parseJson<AuthTokenResponse>(res);
 }
 
-export async function refreshSession(): Promise<AuthTokenResponse | null> {
+async function refreshOnce(): Promise<AuthTokenResponse | null | 'RACE'> {
   const res = await fetch('/api/v1/auth/refresh', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app: 'pwa' }),
   });
-  if (res.status === 401) return null;
+  if (res.status === 401) {
+    const body = (await res.json().catch(() => ({}))) as ProblemError;
+    // Otra pestaña rotó el refresh hace segundos: no es un cierre de sesión, se reintenta.
+    return body.code === 'REFRESH_RACE' ? 'RACE' : null;
+  }
   return parseJson<AuthTokenResponse>(res);
+}
+
+/**
+ * Renueva la sesión con la cookie HttpOnly de 90 días. Devuelve `null` si la sesión terminó.
+ * Publica el token nuevo (o `null`) a quien escuche con `onSessionTokenChange`.
+ */
+export async function refreshSession(): Promise<AuthTokenResponse | null> {
+  let res = await refreshOnce();
+  for (let i = 0; res === 'RACE' && i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+    res = await refreshOnce();
+  }
+  const out = res === 'RACE' ? null : res;
+  setSessionToken(out?.accessToken ?? null);
+  return out;
+}
+
+// ───────────────────────── Token de acceso (15 min) y renovación automática ─────────────────────────
+
+let sessionToken: string | null = null;
+const tokenListeners = new Set<(token: string | null) => void>();
+let refreshing: Promise<AuthTokenResponse | null> | null = null;
+
+/** El token vive aquí (solo en memoria) y no en el estado de React: renovarlo no remonta el juego. */
+export function setSessionToken(token: string | null): void {
+  if (token === sessionToken) return;
+  sessionToken = token;
+  for (const l of tokenListeners) l(token);
+}
+
+export function getSessionToken(): string | null {
+  return sessionToken;
+}
+
+export function onSessionTokenChange(listener: (token: string | null) => void): () => void {
+  tokenListeners.add(listener);
+  return () => tokenListeners.delete(listener);
+}
+
+/** Una sola renovación en curso aunque varias solicitudes venzan a la vez. */
+function refreshShared(): Promise<AuthTokenResponse | null> {
+  refreshing ??= refreshSession().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+/**
+ * `fetch` autenticado: agrega el token vigente y, ante un 401, renueva una vez y reintenta.
+ * Si la sesión de 90 días terminó, el token queda en `null` y se devuelve el 401.
+ */
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const send = (token: string | null) => {
+    const headers = new Headers(init.headers);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, { ...init, headers });
+  };
+  const sentWith = sessionToken;
+  const res = await send(sentWith);
+  if (res.status !== 401) return res;
+  // Si otra solicitud ya renovó mientras esta viajaba, basta con reintentar.
+  const token =
+    sessionToken && sessionToken !== sentWith ? sessionToken : (await refreshShared())?.accessToken;
+  return token ? send(token) : res;
 }
 
 export async function logoutSession(): Promise<void> {
@@ -96,19 +164,16 @@ export async function logoutSession(): Promise<void> {
   });
 }
 
-export async function fetchMe(accessToken: string): Promise<MeResponse> {
-  const res = await fetch('/api/v1/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchMe(): Promise<MeResponse> {
+  const res = await authFetch('/api/v1/me', {});
   return parseJson<MeResponse>(res);
 }
 
-export async function acceptConsent(accessToken: string, body: ConsentAccept): Promise<MeResponse> {
-  const res = await fetch('/api/v1/me/consent', {
+export async function acceptConsent(body: ConsentAccept): Promise<MeResponse> {
+  const res = await authFetch('/api/v1/me/consent', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -117,35 +182,27 @@ export async function acceptConsent(accessToken: string, body: ConsentAccept): P
 
 // ───────────────────────────── Iteración 3: Motor de Juegos ─────────────────────────────
 
-export async function fetchGamesCatalog(accessToken: string): Promise<GamesCatalogResponse> {
-  const res = await fetch('/api/v1/games', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchGamesCatalog(): Promise<GamesCatalogResponse> {
+  const res = await authFetch('/api/v1/games', {});
   return parseJson<GamesCatalogResponse>(res);
 }
 
-export async function startGameSession(
-  accessToken: string,
-  gameId: string,
-): Promise<StartedGameSessionResponse> {
-  const res = await fetch(`/api/v1/games/${gameId}/sessions`, {
+export async function startGameSession(gameId: string): Promise<StartedGameSessionResponse> {
+  const res = await authFetch(`/api/v1/games/${gameId}/sessions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
   });
   return parseJson<StartedGameSessionResponse>(res);
 }
 
 export async function submitSessionAnswersBatch(
-  accessToken: string,
   sessionId: string,
   token: string,
   answers: SessionAnswerItem[],
 ): Promise<{ accepted: number }> {
-  const res = await fetch(`/api/v1/sessions/${sessionId}/answers`, {
+  const res = await authFetch(`/api/v1/sessions/${sessionId}/answers`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ token, answers }),
   });
@@ -153,15 +210,13 @@ export async function submitSessionAnswersBatch(
 }
 
 export async function finishGameSession(
-  accessToken: string,
   sessionId: string,
   token: string,
 ): Promise<GameFinishResponse> {
-  const res = await fetch(`/api/v1/sessions/${sessionId}/finish`, {
+  const res = await authFetch(`/api/v1/sessions/${sessionId}/finish`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ token }),
   });
@@ -170,55 +225,39 @@ export async function finishGameSession(
 
 // ───────────────────────────── Iteración 5: Rankings, Perfil y Gerente ─────────────────────────────
 
-export async function fetchRankings(
-  accessToken: string,
-  scope: RankingQueryScope,
-): Promise<RankingsResponse> {
-  const res = await fetch(`/api/v1/rankings?scope=${encodeURIComponent(scope)}&period=current`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchRankings(scope: RankingQueryScope): Promise<RankingsResponse> {
+  const res = await authFetch(
+    `/api/v1/rankings?scope=${encodeURIComponent(scope)}&period=current`,
+    {},
+  );
   return parseJson<RankingsResponse>(res);
 }
 
-export async function fetchMyRankingAndProfile(
-  accessToken: string,
-): Promise<MyRankingAndProfileResponse> {
-  const res = await fetch('/api/v1/me/ranking', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchMyRankingAndProfile(): Promise<MyRankingAndProfileResponse> {
+  const res = await authFetch('/api/v1/me/ranking', {});
   return parseJson<MyRankingAndProfileResponse>(res);
 }
 
-export async function fetchManagerPharmacySummary(
-  accessToken: string,
-): Promise<PharmacyManagerSummaryResponse> {
-  const res = await fetch('/api/v1/manager/pharmacy/summary', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchManagerPharmacySummary(): Promise<PharmacyManagerSummaryResponse> {
+  const res = await authFetch('/api/v1/manager/pharmacy/summary', {});
   return parseJson<PharmacyManagerSummaryResponse>(res);
 }
 
 // ───────────────────────────── Iteración 6: Medición y Eventos ─────────────────────────────
 
-export async function fetchPendingTests(
-  accessToken: string,
-): Promise<{ tests: PendingKnowledgeTest[] }> {
-  const res = await fetch('/api/v1/tests/pending', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchPendingTests(): Promise<{ tests: PendingKnowledgeTest[] }> {
+  const res = await authFetch('/api/v1/tests/pending', {});
   return parseJson<{ tests: PendingKnowledgeTest[] }>(res);
 }
 
 export async function submitKnowledgeTest(
-  accessToken: string,
   testId: string,
   answers: { questionId: string; answer: string }[],
 ): Promise<SubmitKnowledgeTestResponse> {
-  const res = await fetch(`/api/v1/tests/${encodeURIComponent(testId)}/submit`, {
+  const res = await authFetch(`/api/v1/tests/${encodeURIComponent(testId)}/submit`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ answers }),
   });
@@ -226,14 +265,12 @@ export async function submitKnowledgeTest(
 }
 
 export async function recordUsageEvent(
-  accessToken: string,
   input: UsageEventInput,
 ): Promise<{ id: string; occurredAt: string }> {
-  const res = await fetch('/api/v1/events', {
+  const res = await authFetch('/api/v1/events', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(input),
   });
