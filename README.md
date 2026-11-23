@@ -143,4 +143,13 @@ node infra/staging-local/emulate.mjs  # recorre el uso real con Playwright y gua
 infra/staging-local/stop.sh
 ```
 
+Videos de entrega (cada país y cada sección, con subtítulos) y la página para el product owner y el cliente:
+
+```bash
+node infra/staging-local/record-demo.mjs /tmp/videos PE,CO,EC   # sobre un staging recién creado
+node infra/staging-local/build-entrega.mjs /tmp/videos /tmp/entrega
+```
+
+Genera `entrega-mvp.html` (un solo archivo con los videos incrustados) y `web/` (la misma página con los videos aparte). Requiere `ffmpeg`.
+
 PWA en http://localhost:8080, panel en http://localhost:8081. WhatsApp y SMS están simulados: el último código de cada número se ve en `http://localhost:4010/__inbox?to=+51900000001`. Detalle en ADR-032.
