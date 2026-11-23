@@ -2,7 +2,7 @@
 // para cada país (CO, EC, PE) y cada sección, más la gestión global. Cada video lleva portada,
 // subtítulos de lo que pasa y un indicador de toques/clics. Salida: OUT_DIR/*.webm + manifest.json.
 // Uso: node infra/staging-local/record-demo.mjs [OUT_DIR] [PE,CO,EC]
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chromium, devices } from '@playwright/test';
 
@@ -113,7 +113,14 @@ async function titleCard(page, eyebrow, title, sub) {
 
 // ───────────────────────── Grabación de un video ─────────────────────────
 const browser = await chromium.launch({ slowMo: 120 });
-const manifest = [];
+// Se acumula sobre el manifiesto existente: regrabar un video reemplaza solo su entrada.
+const manifestPath = join(OUT, 'manifest.json');
+const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : [];
+function upsertEntry(entry) {
+  const i = manifest.findIndex((m) => m.id === entry.id);
+  if (i >= 0) manifest[i] = entry;
+  else manifest.push(entry);
+}
 
 /** IDS=PE-6-config,G-1-superadmin graba solo esos videos (para iterar el guion). */
 const IDS = process.env.IDS ? process.env.IDS.split(',') : null;
@@ -144,7 +151,7 @@ async function video(meta, kind, fn) {
   await ctx.close();
   const file = `${meta.id}.webm`;
   renameSync(await vid.path(), join(OUT, file));
-  manifest.push({ ...meta, kind, file, seconds: Math.round((Date.now() - t0) / 1000), ok, error });
+  upsertEntry({ ...meta, kind, file, seconds: Math.round((Date.now() - t0) / 1000), ok, error });
   console.log(`${ok ? '✓' : '✗'} ${meta.id} ${meta.title}${error ? ` — ${error}` : ''}`);
   writeFileSync(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
@@ -843,7 +850,7 @@ for (const code of ONLY) {
 }
 
 // ───────────────────────── Gestión global ─────────────────────────
-if (ONLY.includes('PE')) {
+if (ONLY.includes('PE') || IDS?.some((id) => id.startsWith('G-'))) {
   const pe = COUNTRIES.PE;
   await video(
     {

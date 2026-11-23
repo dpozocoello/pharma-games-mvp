@@ -220,7 +220,7 @@ async function seedPharmaciesAndUsers(countryIds: Record<CountryCode, string>) {
     }
 
     if (code === PILOT) {
-      // Un usuario por rol de administración, en el país piloto.
+      // Un solo super administrador (alcance global).
       await upsertUser({
         countryId: null,
         phoneE164: fakePhone(code, 90),
@@ -228,29 +228,30 @@ async function seedPharmaciesAndUsers(countryIds: Record<CountryCode, string>) {
         displayName: 'Super Admin Demo',
         role: 'SUPER_ADMIN',
       });
-      await upsertUser({
-        countryId,
-        phoneE164: fakePhone(code, 91),
-        document: fakeDocument(code, 91),
-        displayName: `Admin ${code} Demo`,
-        role: 'COUNTRY_ADMIN',
-      });
-      await upsertUser({
-        countryId,
-        phoneE164: fakePhone(code, 92),
-        document: fakeDocument(code, 92),
-        displayName: `Editor ${code} Demo`,
-        role: 'CONTENT_EDITOR',
-      });
-      await upsertUser({
-        countryId,
-        phoneE164: fakePhone(code, 93),
-        document: fakeDocument(code, 93),
-        displayName: `Gerente ${code} Demo`,
-        role: 'PHARMACY_MANAGER',
-        pharmacyId: pharmacyIds[0]!,
-      });
     }
+    // Un usuario por rol en cada país: la gestión se demuestra y se prueba igual en los tres.
+    await upsertUser({
+      countryId,
+      phoneE164: fakePhone(code, 91),
+      document: fakeDocument(code, 91),
+      displayName: `Admin ${code} Demo`,
+      role: 'COUNTRY_ADMIN',
+    });
+    await upsertUser({
+      countryId,
+      phoneE164: fakePhone(code, 92),
+      document: fakeDocument(code, 92),
+      displayName: `Editor ${code} Demo`,
+      role: 'CONTENT_EDITOR',
+    });
+    await upsertUser({
+      countryId,
+      phoneE164: fakePhone(code, 93),
+      document: fakeDocument(code, 93),
+      displayName: `Gerente ${code} Demo`,
+      role: 'PHARMACY_MANAGER',
+      pharmacyId: pharmacyIds[0]!,
+    });
   }
 }
 
