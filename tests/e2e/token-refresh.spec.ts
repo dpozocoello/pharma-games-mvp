@@ -50,6 +50,9 @@ async function login(page: Page, localPhone: string) {
   await expect(home).toBeVisible();
 }
 
+/** Botón de respuesta de cualquiera de los dos moldes (trivia o verdadero/falso). */
+const ANSWER_BUTTON = 'button[data-option-id], button[data-tf-id]';
+
 const expired401 = {
   status: 401,
   contentType: 'application/problem+json',
@@ -66,7 +69,7 @@ test('un token vencido a mitad de partida se renueva solo y la partida termina',
     .getByRole('button', { name: /^Jugar / })
     .first()
     .click();
-  await expect(page.locator('button[data-option-id]').first()).toBeVisible();
+  await expect(page.locator(ANSWER_BUTTON).first()).toBeVisible();
 
   // Desde aquí, el primer envío de respuestas "encuentra" el token vencido.
   let refreshes = 0;
@@ -83,9 +86,9 @@ test('un token vencido a mitad de partida se renueva solo y la partida termina',
   });
 
   // Responde todas las preguntas (la primera opción, da igual si es correcta).
-  const result = page.getByText(/Respuestas correctas:/);
+  const result = page.getByText(/Respuestas correctas:|Aciertos:/);
   while (!(await result.isVisible())) {
-    const option = page.locator('button[data-option-id]').first();
+    const option = page.locator(ANSWER_BUTTON).first();
     if (await option.isVisible().catch(() => false)) await option.click();
     await page.waitForTimeout(150);
   }

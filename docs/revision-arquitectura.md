@@ -94,7 +94,7 @@ Esos sorted sets **nunca se leen** (no hay `ZREVRANGE` ni `ZREVRANK` en el códi
 
 **Corrección:** para `FAST_ANSWER`, usar `serverElapsedMs` cuando exista y marcar como anomalía una diferencia grande entre el tiempo del cliente y el del servidor. Calcular el bono con el tiempo del servidor entre respuestas, con un tope de `secondsPerQuestion`, y anular el bono si el intervalo es menor que `minAnswerMs`. La prueba de aceptación "script a 200 ms" debería incluir un script que miente sobre `clientElapsedMs`.
 
-### 🟠 A2 — La PWA no tiene service worker
+### 🟠 A2 — ✅ Corregido el 2026-11-23 (ADR-030) — La PWA no tiene service worker
 
 `apps/pwa` (no hay Workbox ni `serviceWorker.register`)
 

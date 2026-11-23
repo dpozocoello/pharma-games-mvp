@@ -31,6 +31,7 @@ import {
   verifyOtp,
 } from './api';
 import { readChosenCountry, saveChosenCountry } from './country';
+import { setGameInProgress } from './pwa';
 import styles from './App.module.css';
 
 const storage = typeof window !== 'undefined' ? window.localStorage : undefined;
@@ -70,6 +71,8 @@ export function App() {
 
   // Estado de juego activo (Iteración 3), navegación PWA (Iteración 5) y test inicial (Iteración 6)
   const [activeSession, setActiveSession] = useState<StartedGameSessionResponse | null>(null);
+  // Mientras hay partida no se ofrece actualizar la app (recargaría a mitad del juego).
+  useEffect(() => setGameInProgress(activeSession !== null), [activeSession]);
   const [activeTest, setActiveTest] = useState<PendingKnowledgeTest | null>(null);
   const [testAnswers, setTestAnswers] = useState<Record<string, string>>({});
   const [pwaSection, setPwaSection] = useState<'games' | 'rankings' | 'profile' | 'manager'>(

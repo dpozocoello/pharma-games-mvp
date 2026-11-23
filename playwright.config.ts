@@ -22,6 +22,8 @@ export default defineConfig({
   use: {
     baseURL: process.env.PWA_BASE_URL ?? 'http://localhost:5173',
     trace: 'on-first-retry',
+    // Sin service worker por defecto: así `page.route` intercepta todo. `offline.spec.ts` lo activa.
+    serviceWorkers: 'block',
   },
   webServer: [
     {

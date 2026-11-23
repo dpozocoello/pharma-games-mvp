@@ -45,6 +45,12 @@ En producción (`NODE_ENV=production`) la API **aborta el arranque inmediatament
 - **Si un día no tiene foto:** BullMQ no recupera ejecuciones perdidas (por ejemplo, si no había ningún worker a las 23:55). No se puede reconstruir después, porque los puntos ya cambiaron; se deja constancia y la del día siguiente sale normal.
 - **Advertencia `venció sin cerrarse`:** el periodo terminó y nadie lo cerró. Ciérralo desde el panel (`POST /admin/periods/:id/close`); el cierre toma su foto final y abre el periodo siguiente.
 
+## 2.2 PWA sin Conexión y Actualizaciones (ADR-030)
+
+- **Qué funciona sin red:** abrir la app ya instalada y terminar de responder una partida empezada (las respuestas se guardan en el celular y se envían al volver la red). Ingresar, ver rankings y empezar partidas necesitan conexión: la API nunca se sirve desde caché.
+- **Publicar una versión nueva:** al desplegar la PWA, los celulares descargan la versión nueva en segundo plano y muestran "Hay una versión nueva — Actualizar" cuando no hay una partida en curso. No se fuerza la recarga.
+- **Verificación manual en iPhone (Safari):** instalar desde "Compartir → Agregar a inicio", abrir una vez con red, activar el modo avión y abrir de nuevo: debe verse la pantalla de ingreso con el aviso "Sin conexión". Las pruebas automáticas cubren esto en Chromium (`tests/e2e/offline.spec.ts`).
+
 ## 3. Alta de un Nuevo País por Configuración (Sin Despliegue)
 
 1. Ingresar al panel de administración (`http://localhost:5174`) con cuenta `SUPER_ADMIN`.
