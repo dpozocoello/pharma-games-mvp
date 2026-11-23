@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { RankingPeriod } from '@prisma/client';
 import {
+  attributePharmacyPoints,
   computePharmacyRanking,
   localDay,
   maskPhone,
@@ -187,37 +188,50 @@ export class RankingsService {
       throw new NotFoundException('Periodo de ranking no encontrado');
     }
 
-    const [eligibleByUser, finishedSessions, clerks, pharmacies, country] = await Promise.all([
-      this.anomalies.computeEligiblePointsByUser(countryId, {
-        startsAt: period.startsAt,
-        endsAt: period.endsAt,
-      }),
-      this.prisma.gameSession.findMany({
-        where: {
-          countryId,
-          status: 'FINISHED',
-          startedAt: { gte: period.startsAt, lt: period.endsAt },
-        },
-        select: { userId: true },
-      }),
-      this.prisma.user.findMany({
-        where: { countryId, role: 'CLERK', status: 'ACTIVE' },
-        select: {
-          id: true,
-          displayName: true,
-          assignments: {
-            where: { to: null },
-            include: { pharmacy: { select: { id: true, name: true, city: true } } },
-            take: 1,
+    const range = { startsAt: period.startsAt, endsAt: period.endsAt };
+    const [eligibleEntries, finishedSessions, assignments, clerks, pharmacies, country] =
+      await Promise.all([
+        this.anomalies.computeEligibleEntries(countryId, range),
+        this.prisma.gameSession.findMany({
+          where: {
+            countryId,
+            status: 'FINISHED',
+            startedAt: { gte: period.startsAt, lt: period.endsAt },
           },
-        },
-      }),
-      this.prisma.pharmacy.findMany({
-        where: { countryId, active: true },
-        select: { id: true, name: true, city: true },
-      }),
-      this.countries.getById(countryId),
-    ]);
+          select: { userId: true, startedAt: true },
+        }),
+        // Historial de asignaciones que se cruza con el periodo (para atribuir por farmacia).
+        this.prisma.pharmacyAssignment.findMany({
+          where: {
+            pharmacy: { countryId },
+            from: { lt: period.endsAt },
+            OR: [{ to: null }, { to: { gt: period.startsAt } }],
+          },
+          select: { userId: true, pharmacyId: true, from: true, to: true },
+        }),
+        this.prisma.user.findMany({
+          where: { countryId, role: 'CLERK', status: 'ACTIVE' },
+          select: {
+            id: true,
+            displayName: true,
+            assignments: {
+              where: { to: null },
+              include: { pharmacy: { select: { id: true, name: true, city: true } } },
+              take: 1,
+            },
+          },
+        }),
+        this.prisma.pharmacy.findMany({
+          where: { countryId, active: true },
+          select: { id: true, name: true, city: true },
+        }),
+        this.countries.getById(countryId),
+      ]);
+
+    const eligibleByUser = new Map<string, number>();
+    for (const e of eligibleEntries) {
+      eligibleByUser.set(e.userId, (eligibleByUser.get(e.userId) ?? 0) + e.delta);
+    }
 
     // Dependiente activo en el periodo = jugó al menos 1 partida terminada en ese periodo (§7)
     const activeUserIds = new Set(finishedSessions.map((s) => s.userId));
@@ -241,22 +255,23 @@ export class RankingsService {
       })
       .map((item, idx) => ({ ...item, position: idx + 1 }));
 
-    // 2. Ranking por Farmacia (promedio por dependiente activo, NO suma; con 0 activos no aparece)
-    const clerksByPharmacy = new Map<
-      string,
-      { userId: string; points: number; isActiveInPeriod: boolean }[]
-    >();
-    for (const u of clerks) {
-      const phId = u.assignments[0]?.pharmacy.id;
-      if (!phId) continue;
-      const list = clerksByPharmacy.get(phId) ?? [];
-      list.push({
-        userId: u.id,
-        points: eligibleByUser.get(u.id) ?? 0,
-        isActiveInPeriod: activeUserIds.has(u.id),
-      });
-      clerksByPharmacy.set(phId, list);
-    }
+    // 2. Ranking por Farmacia (promedio por dependiente activo, NO suma; con 0 activos no aparece).
+    // Cada punto y cada partida cuentan para la farmacia donde estaba el dependiente al jugar
+    // (ADR-025): un traslado no se lleva los puntos ya ganados.
+    const clerkIds = new Set(clerks.map((u) => u.id));
+    const attributed = attributePharmacyPoints({
+      assignments,
+      points: eligibleEntries.filter((e) => clerkIds.has(e.userId)),
+      finishedSessions: finishedSessions
+        .filter((fs) => clerkIds.has(fs.userId))
+        .map((fs) => ({ userId: fs.userId, at: fs.startedAt })),
+    });
+    const clerksByPharmacy = new Map(
+      [...attributed.entries()].map(([phId, byClerk]) => [
+        phId,
+        [...byClerk.entries()].map(([userId, c]) => ({ userId, ...c })),
+      ]),
+    );
 
     const pharmacyRanked = computePharmacyRanking(
       pharmacies.map((ph) => ({
@@ -458,8 +473,18 @@ export class RankingsService {
       orderBy: { brand: { name: 'asc' } },
     });
 
-    const sessionsInPeriod = recentSessions.filter((s) => s.startedAt >= period.startsAt);
-    const playedBrandIds = new Set(sessionsInPeriod.map((s) => s.brandId));
+    // Partidas y marcas del periodo completo (no solo de las últimas 20 que se muestran).
+    const inPeriod = {
+      userId: p.userId,
+      countryId: p.countryId,
+      status: 'FINISHED' as const,
+      startedAt: { gte: period.startsAt, lt: period.endsAt },
+    };
+    const [sessionsPlayedInPeriod, brandsPlayed] = await Promise.all([
+      this.prisma.gameSession.count({ where: inPeriod }),
+      this.prisma.gameSession.groupBy({ by: ['brandId'], where: inPeriod }),
+    ]);
+    const playedBrandIds = new Set(brandsPlayed.map((b) => b.brandId));
     const pendingBrands = activeBrands
       .filter((bc) => !playedBrandIds.has(bc.brandId))
       .map((bc) => ({
@@ -492,7 +517,7 @@ export class RankingsService {
             activeClerks: myPhRow?.activeClerks ?? 0,
           }
         : null,
-      sessionsPlayedInPeriod: sessionsInPeriod.length,
+      sessionsPlayedInPeriod,
       recentSessions: recentSessions.map((s) => ({
         id: s.id,
         brandName: s.game.brand.name,

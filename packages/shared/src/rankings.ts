@@ -69,6 +69,62 @@ export function computePharmacyRanking(pharmacies: PharmacyRankingInput[]): Phar
   }));
 }
 
+export interface AssignmentSpan {
+  userId: string;
+  pharmacyId: string;
+  from: Date;
+  /** Nulo = vigente. El instante `to` ya pertenece a la asignación siguiente. */
+  to: Date | null;
+}
+
+/**
+ * Atribuye a cada farmacia los puntos y la actividad del periodo según **dónde estaba asignado el
+ * dependiente cuando jugó** (ADR-025): un traslado no se lleva los puntos ya ganados ni deja a la
+ * farmacia nueva como "activa" hasta que juegue allí. Lo jugado sin farmacia asignada no cuenta
+ * para ninguna farmacia (sí para el ranking individual).
+ *
+ * Devuelve `pharmacyId → (userId → { points, isActiveInPeriod })`.
+ */
+export function attributePharmacyPoints(input: {
+  assignments: AssignmentSpan[];
+  /** Movimientos elegibles del periodo, con el instante en que se acreditaron. */
+  points: { userId: string; delta: number; at: Date }[];
+  /** Partidas terminadas del periodo (definen al dependiente activo). */
+  finishedSessions: { userId: string; at: Date }[];
+}): Map<string, Map<string, { points: number; isActiveInPeriod: boolean }>> {
+  const byUser = new Map<string, AssignmentSpan[]>();
+  for (const a of input.assignments) {
+    const list = byUser.get(a.userId) ?? [];
+    list.push(a);
+    byUser.set(a.userId, list);
+  }
+  const pharmacyAt = (userId: string, at: Date): string | null => {
+    for (const a of byUser.get(userId) ?? []) {
+      if (a.from <= at && (a.to === null || at < a.to)) return a.pharmacyId;
+    }
+    return null;
+  };
+
+  const out = new Map<string, Map<string, { points: number; isActiveInPeriod: boolean }>>();
+  const cell = (pharmacyId: string, userId: string) => {
+    let clerks = out.get(pharmacyId);
+    if (!clerks) out.set(pharmacyId, (clerks = new Map()));
+    let c = clerks.get(userId);
+    if (!c) clerks.set(userId, (c = { points: 0, isActiveInPeriod: false }));
+    return c;
+  };
+
+  for (const s of input.finishedSessions) {
+    const ph = pharmacyAt(s.userId, s.at);
+    if (ph) cell(ph, s.userId).isActiveInPeriod = true;
+  }
+  for (const e of input.points) {
+    const ph = pharmacyAt(e.userId, e.at);
+    if (ph) cell(ph, e.userId).points += e.delta;
+  }
+  return out;
+}
+
 export interface RankingRowView {
   position: number;
   entityId: string;

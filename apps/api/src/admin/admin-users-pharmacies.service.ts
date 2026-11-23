@@ -232,15 +232,14 @@ export class AdminUsersPharmaciesService {
           include: { pharmacy: true },
           orderBy: { from: 'desc' },
         },
-        ledger: { select: { delta: true, onHold: true } },
+        ledger: { select: { delta: true, sessionId: true } },
       },
     });
 
+    const blocked = await this.blockedSessions(users.map((u) => u.id));
     return users.map((u) => {
       const current = u.assignments.find((a) => a.to === null);
-      const totalPoints = u.ledger
-        .filter((l) => !l.onHold)
-        .reduce((acc, item) => acc + item.delta, 0);
+      const totalPoints = eligibleTotal(u.ledger, blocked);
       return {
         id: u.id,
         countryCode: u.country?.code ?? null,
@@ -267,6 +266,19 @@ export class AdminUsersPharmaciesService {
     });
   }
 
+  /**
+   * Partidas con alerta abierta o confirmada: sus puntos no cuentan (misma regla que el ranking).
+   * `onHold` no sirve para esto: el libro es inmutable y la marca no cambia al descartar la alerta.
+   */
+  private async blockedSessions(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const alerts = await this.prisma.anomalyAlert.findMany({
+      where: { status: { in: ['OPEN', 'CONFIRMED'] }, session: { userId: { in: userIds } } },
+      select: { sessionId: true },
+    });
+    return new Set(alerts.map((a) => a.sessionId));
+  }
+
   async getUserView(p: Principal, userId: string): Promise<AdminUserView> {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -276,7 +288,7 @@ export class AdminUsersPharmaciesService {
           include: { pharmacy: true },
           orderBy: { from: 'desc' },
         },
-        ledger: { select: { delta: true, onHold: true } },
+        ledger: { select: { delta: true, sessionId: true } },
       },
     });
     if (!u) throw new NotFoundException('Usuario no encontrado');
@@ -285,9 +297,7 @@ export class AdminUsersPharmaciesService {
     }
 
     const current = u.assignments.find((a) => a.to === null);
-    const totalPoints = u.ledger
-      .filter((l) => !l.onHold)
-      .reduce((acc, item) => acc + item.delta, 0);
+    const totalPoints = eligibleTotal(u.ledger, await this.blockedSessions([u.id]));
 
     return {
       id: u.id,
@@ -780,4 +790,17 @@ export class AdminUsersPharmaciesService {
       finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
     };
   }
+}
+
+/**
+ * Puntos que cuentan: se excluyen los movimientos de partidas bloqueadas (el original y, si lo hay,
+ * su REVERSAL, para no restar dos veces). Una anulación sin alerta resta normalmente.
+ */
+function eligibleTotal(
+  ledger: { delta: number; sessionId: string | null }[],
+  blocked: Set<string>,
+): number {
+  return ledger
+    .filter((l) => !l.sessionId || !blocked.has(l.sessionId))
+    .reduce((acc, l) => acc + l.delta, 0);
 }

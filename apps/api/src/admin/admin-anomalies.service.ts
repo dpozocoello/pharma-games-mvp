@@ -183,6 +183,18 @@ export class AdminAnomaliesService {
     countryId: string,
     periodRange?: { startsAt: Date; endsAt: Date },
   ): Promise<Map<string, number>> {
+    const totals = new Map<string, number>();
+    for (const e of await this.computeEligibleEntries(countryId, periodRange)) {
+      totals.set(e.userId, (totals.get(e.userId) ?? 0) + e.delta);
+    }
+    return totals;
+  }
+
+  /** Movimientos elegibles uno a uno, con el instante en que se acreditaron (para atribuirlos). */
+  async computeEligibleEntries(
+    countryId: string,
+    periodRange?: { startsAt: Date; endsAt: Date },
+  ): Promise<{ userId: string; delta: number; at: Date }[]> {
     const [entries, unresolvedAlerts] = await Promise.all([
       this.prisma.pointsLedger.findMany({
         where: {
@@ -199,6 +211,7 @@ export class AdminAnomaliesService {
           reason: true,
           onHold: true,
           reversesId: true,
+          createdAt: true,
         },
       }),
       this.prisma.anomalyAlert.findMany({
@@ -215,14 +228,13 @@ export class AdminAnomaliesService {
       entries.filter((e) => e.reversesId).map((e) => e.reversesId!),
     );
 
-    const totals = new Map<string, number>();
+    const eligible: { userId: string; delta: number; at: Date }[] = [];
     for (const e of entries) {
       if (e.reason === 'REVERSAL') continue; // Ya neutralizamos el movimiento original abajo
       if (reversedOriginalIds.has(e.id)) continue; // Anulado por un REVERSAL
       if (e.sessionId && blockedSessions.has(e.sessionId)) continue; // En revisión (OPEN) o confirmado
-      totals.set(e.userId, (totals.get(e.userId) ?? 0) + e.delta);
+      eligible.push({ userId: e.userId, delta: e.delta, at: e.createdAt });
     }
-
-    return totals;
+    return eligible;
   }
 }

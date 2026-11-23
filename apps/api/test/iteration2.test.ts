@@ -148,6 +148,8 @@ describe('Iteración 2 — Usuarios, farmacias, traslados y contenido', () => {
 
   const prismaMock: any = {
     $transaction: async (fn: (tx: any) => Promise<any>) => fn(prismaMock),
+    // Sin anomalías en estas pruebas: todos los puntos cuentan.
+    anomalyAlert: { findMany: vi.fn(async () => []) },
     country: {
       findUnique: vi.fn(async ({ where }: any) => {
         if (where.code) return countries.get(where.code) ?? null;

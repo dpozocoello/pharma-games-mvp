@@ -306,6 +306,19 @@ describe('Iteración 5 — Rankings (promedio por activo), panel del gerente, pe
       findMany: vi.fn(async () => []),
     },
     gameSession: {
+      count: vi.fn(
+        async ({ where }: any) =>
+          sessionsData.filter((s) => s.userId === where.userId && s.status === 'FINISHED').length,
+      ),
+      groupBy: vi.fn(async ({ where }: any) =>
+        [
+          ...new Set(
+            sessionsData
+              .filter((s) => s.userId === where.userId && s.status === 'FINISHED')
+              .map((s) => s.brandId),
+          ),
+        ].map((brandId) => ({ brandId })),
+      ),
       findMany: vi.fn(async ({ where }: any) => {
         return sessionsData.filter((s) => {
           if (where?.userId && typeof where.userId === 'string' && s.userId !== where.userId) {
@@ -348,6 +361,15 @@ describe('Iteración 5 — Rankings (promedio por activo), panel del gerente, pe
         return null;
       }),
       findMany: vi.fn(async ({ where }: any) => {
+        // Sin pharmacyId: historial del país (todos en su farmacia actual desde hace 30 días).
+        if (!where?.pharmacyId) {
+          return usersData.map((u) => ({
+            userId: u.id,
+            pharmacyId: u.pharmacy.id,
+            from: new Date(Date.now() - 30 * 86_400_000),
+            to: null,
+          }));
+        }
         return usersData
           .filter((u) => u.pharmacy.id === where.pharmacyId)
           .map((u) => ({
