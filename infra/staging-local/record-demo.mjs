@@ -890,12 +890,15 @@ if (ONLY.includes('PE') || IDS?.some((id) => id.startsWith('G-'))) {
         3000,
       );
       const code = 'BO';
-      await page.getByPlaceholder('BO', { exact: true }).fill(code);
-      await page.getByPlaceholder('Bolivia').fill('Bolivia (demo)');
-      await page.getByLabel('Locale').fill('es-BO');
-      await page.getByLabel('Zona horaria').fill('America/La_Paz');
-      await page.getByLabel('Prefijo telefónico').fill('+591');
-      await page.getByRole('button', { name: /Crear país/i }).click();
+      const form = page.locator('form', {
+        has: page.getByRole('heading', { name: /Dar de alta país/i }),
+      });
+      await form.getByPlaceholder('BO', { exact: true }).fill(code);
+      await form.getByPlaceholder('Bolivia').fill('Bolivia (demo)');
+      await form.getByLabel('Locale').fill('es-BO');
+      await form.getByLabel('Zona horaria').fill('America/La_Paz');
+      await form.getByLabel('Prefijo telefónico').fill('+591');
+      await form.getByRole('button', { name: /Crear país/i }).click();
       await page.waitForLoadState('networkidle');
       await wait(1000);
       await say(
