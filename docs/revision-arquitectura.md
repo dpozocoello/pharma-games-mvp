@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-23 · Alcance: todo el repositorio (commit `31f0286`) contrastado con `CLAUDE.md` · Revisor: análisis independiente, sin cambios en el código.
 
-> **Actualización 2026-11-23:** C1, C2, C4 y B2 están corregidos (C2 medido en `docs/informe-carga.md` §3.4) y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
+> **Actualización 2026-11-23:** C1, C2, C4 y B2 están corregidos y la foto diaria de A3 está programada (C2 medido en `docs/informe-carga.md` §3.4) y verificados con PostgreSQL y Redis reales (ver ADR-021, ADR-022 y `apps/api/test/integration/fair-play.int.test.ts`). Los topes diarios ya no tienen carrera, pero el código muerto de M2 (contadores en Redis) sigue ahí. El resto de los hallazgos sigue abierto.
 
 ## 1. Resumen ejecutivo
 
@@ -102,7 +102,7 @@ Solo hay `manifest.webmanifest`. No hay caché del shell, ni pantalla sin conexi
 
 **Corrección:** `vite-plugin-pwa` (MIT) con `registerType: 'prompt'`, precache del shell y de los chunks de los juegos, y `NetworkOnly` para `/api`. No llamar a `skipWaiting` mientras haya una partida activa.
 
-### 🟠 A3 — Faltan los trabajos programados
+### 🟠 A3 — 🟡 Parcial el 2026-11-23 (ADR-024: foto diaria programada por país) — Faltan los trabajos programados
 
 BullMQ solo se usa para el OTP (`otp-queue.ts`). No existe:
 

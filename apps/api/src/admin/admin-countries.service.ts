@@ -1,4 +1,10 @@
-import { ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Country, Prisma } from '@prisma/client';
 import {
   DEFAULT_POINTS_RULES,
@@ -17,6 +23,7 @@ import type { Principal } from '../auth/principal';
 import { AppError } from '../common/errors';
 import { CountryConfigService } from '../countries/country-config.service';
 import { PrismaService } from '../infra/prisma.service';
+import { DailySnapshotScheduler } from '../rankings/daily-snapshot.scheduler';
 
 const summary = (c: Country): AdminCountrySummary => ({
   code: c.code,
@@ -33,10 +40,13 @@ const summary = (c: Country): AdminCountrySummary => ({
  */
 @Injectable()
 export class AdminCountriesService {
+  private readonly logger = new Logger(AdminCountriesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly cache: CountryConfigService,
+    private readonly snapshots: DailySnapshotScheduler,
   ) {}
 
   async list(p: Principal): Promise<AdminCountrySummary[]> {
@@ -153,6 +163,12 @@ export class AdminCountriesService {
       );
     });
     await this.cache.invalidate(code);
+    // Activar, desactivar o cambiar la zona horaria cambia la foto diaria programada del país.
+    const updated = await this.prisma.country.findUniqueOrThrow({ where: { id: country.id } });
+    await this.snapshots.sync(updated).catch((e: unknown) => {
+      // El país ya quedó guardado; cada instancia resincroniza la programación al arrancar.
+      this.logger.warn(`No se pudo reprogramar la foto diaria de ${code}: ${String(e)}`);
+    });
     return this.view(country.id);
   }
 

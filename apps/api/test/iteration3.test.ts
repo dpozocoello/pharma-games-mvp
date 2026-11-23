@@ -5,6 +5,8 @@ import { DEFAULT_POINTS_RULES } from '@pharma/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { OtpQueue } from '../src/auth/messaging/otp-queue';
+import { DailySnapshotScheduler } from '../src/rankings/daily-snapshot.scheduler';
+import { RankingJobsWorker } from '../src/rankings/daily-snapshot.worker';
 import type { Principal } from '../src/auth/principal';
 import { TokenService } from '../src/auth/token.service';
 import { configureApp } from '../src/bootstrap';
@@ -239,6 +241,11 @@ describe('Iteración 3 — Motor de juegos, contrato SDK y seguridad de respuest
       .useValue({ hit: async () => 0 })
       .overrideProvider(OtpQueue)
       .useValue({ enqueue: vi.fn() })
+      // Sin BullMQ real en pruebas unitarias (las de integración usan Redis real).
+      .overrideProvider(DailySnapshotScheduler)
+      .useValue({ sync: vi.fn(), syncAll: vi.fn() })
+      .overrideProvider(RankingJobsWorker)
+      .useValue({})
       .overrideProvider(ConsentService)
       .useValue({ hasAcceptedCurrent: async () => true, hasAccepted: async () => true })
       .compile();

@@ -30,6 +30,14 @@ En producción (`NODE_ENV=production`) la API **aborta el arranque inmediatament
 
 ---
 
+## 2.1 Foto Oficial Diaria del Ranking (ADR-024)
+
+- **Cuándo:** todos los días a las 23:55 en la hora local de cada país (`RANKING_SNAPSHOT_CRON`, `America/Lima`, `America/Bogota`, `America/Guayaquil`). Se programa sola al arrancar la API y al activar, desactivar o cambiar la zona horaria de un país en el panel.
+- **Dónde corre:** en el worker de la cola `rankings` de BullMQ (`JOBS_WORKER_ENABLED=true`, por defecto en cada instancia). Para separarlo, deja `JOBS_WORKER_ENABLED=true` solo en un proceso dedicado y `false` en las instancias que atienden tráfico. Con varias instancias activas no se duplica: BullMQ entrega cada ejecución a un solo worker.
+- **Cómo verificar:** `RankingSnapshot` debe tener filas con `snapshotDay` = el día local de ayer para el periodo abierto de cada país. En los logs: `Foto diaria PE 2026-11-23: N filas`.
+- **Si un día no tiene foto:** BullMQ no recupera ejecuciones perdidas (por ejemplo, si no había ningún worker a las 23:55). No se puede reconstruir después, porque los puntos ya cambiaron; se deja constancia y la del día siguiente sale normal.
+- **Advertencia `venció sin cerrarse`:** el periodo terminó y nadie lo cerró. Ciérralo desde el panel (`POST /admin/periods/:id/close`); el cierre toma su foto final y abre el periodo siguiente.
+
 ## 3. Alta de un Nuevo País por Configuración (Sin Despliegue)
 
 1. Ingresar al panel de administración (`http://localhost:5174`) con cuenta `SUPER_ADMIN`.

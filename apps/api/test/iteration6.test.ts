@@ -5,6 +5,8 @@ import { DEFAULT_POINTS_RULES } from '@pharma/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { OtpQueue } from '../src/auth/messaging/otp-queue';
+import { DailySnapshotScheduler } from '../src/rankings/daily-snapshot.scheduler';
+import { RankingJobsWorker } from '../src/rankings/daily-snapshot.worker';
 import type { Principal } from '../src/auth/principal';
 import { TokenService } from '../src/auth/token.service';
 import { configureApp } from '../src/bootstrap';
@@ -282,6 +284,11 @@ describe('Iteración 6 — Medición (Test inicial por marca, eventos sin PII y 
       .useValue({ client: { get: vi.fn().mockResolvedValue(null), set: vi.fn(), del: vi.fn() } })
       .overrideProvider(OtpQueue)
       .useValue({ enqueue: vi.fn() })
+      // Sin BullMQ real en pruebas unitarias (las de integración usan Redis real).
+      .overrideProvider(DailySnapshotScheduler)
+      .useValue({ sync: vi.fn(), syncAll: vi.fn() })
+      .overrideProvider(RankingJobsWorker)
+      .useValue({})
       .overrideProvider(RateLimitService)
       .useValue({ hit: vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 0 }) })
       .overrideProvider(ConsentService)

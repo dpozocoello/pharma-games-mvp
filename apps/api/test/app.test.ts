@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { OtpQueue } from '../src/auth/messaging/otp-queue';
+import { DailySnapshotScheduler } from '../src/rankings/daily-snapshot.scheduler';
+import { RankingJobsWorker } from '../src/rankings/daily-snapshot.worker';
 import { RateLimitService } from '../src/common/rate-limit';
 import { configureApp } from '../src/bootstrap';
 import { loadEnv } from '../src/config/env';
@@ -47,6 +49,11 @@ describe('API base', () => {
       .useValue({ hit: async () => 0 })
       .overrideProvider(OtpQueue)
       .useValue({ enqueue: vi.fn() })
+      // Sin BullMQ real en pruebas unitarias (las de integración usan Redis real).
+      .overrideProvider(DailySnapshotScheduler)
+      .useValue({ sync: vi.fn(), syncAll: vi.fn() })
+      .overrideProvider(RankingJobsWorker)
+      .useValue({})
       .compile();
     app = mod.createNestApplication({ logger: false });
     configureApp(app, env);

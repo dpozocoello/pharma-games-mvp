@@ -358,9 +358,15 @@ export class RankingsService {
 
   // ───────────────────────────── Foto Diaria Oficial (RankingSnapshot) ─────────────────────────────
 
+  /**
+   * Foto oficial del ranking (`RankingSnapshot`), calculada desde PostgreSQL. `at` fija el día local
+   * de la foto (el trabajo programado pasa su hora programada). Idempotente por día: si ya existe
+   * la foto de ese día, se conserva la primera.
+   */
   async takeDailySnapshot(
     countryId: string,
     periodId?: string,
+    at: Date = new Date(),
   ): Promise<{ count: number; snapshotDay: string }> {
     const period = periodId
       ? await this.prisma.rankingPeriod.findUniqueOrThrow({ where: { id: periodId } })
@@ -368,7 +374,7 @@ export class RankingsService {
 
     const standings = await this.computePeriodStandings(countryId, period.id);
     const tz = standings.country?.timezone ?? 'America/Lima';
-    const dayStr = localDay(new Date(), tz);
+    const dayStr = localDay(at, tz);
 
     const rowsToPersist = [
       ...standings.individualRows.map((r) => ({

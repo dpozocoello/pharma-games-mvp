@@ -49,12 +49,17 @@ export const envSchema = z
      */
     RANKING_LIVE_MIN_REBUILD_MS: z.coerce.number().int().min(0).default(10_000),
     RANKING_LIVE_MAX_AGE_MS: z.coerce.number().int().min(1_000).default(300_000),
+    /** Hora local de la foto oficial diaria del ranking (cron de 5 campos, en la zona de cada país). */
+    RANKING_SNAPSHOT_CRON: z.string().default('55 23 * * *'),
+    /** Ejecuta el worker de la cola `rankings` (foto diaria) en este proceso. */
+    JOBS_WORKER_ENABLED: bool,
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   })
   .transform((env) => ({
     ...env,
     COOKIE_SECURE: env.COOKIE_SECURE ?? env.NODE_ENV === 'production',
     OTP_WORKER_ENABLED: env.OTP_WORKER_ENABLED ?? true,
+    JOBS_WORKER_ENABLED: env.JOBS_WORKER_ENABLED ?? true,
   }))
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;

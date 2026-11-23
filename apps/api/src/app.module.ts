@@ -39,6 +39,8 @@ import { MeService } from './me/me.service';
 import { MeasurementController } from './measurement/measurement.controller';
 import { MeasurementService } from './measurement/measurement.service';
 import { RankingsController } from './rankings/rankings.controller';
+import { DailySnapshotScheduler } from './rankings/daily-snapshot.scheduler';
+import { RankingJobsWorker } from './rankings/daily-snapshot.worker';
 import { LiveRankingStore } from './rankings/live-ranking.store';
 import { RankingsService } from './rankings/rankings.service';
 
@@ -132,6 +134,8 @@ export class AppModule {
         GamesService,
         LiveRankingStore,
         RankingsService,
+        DailySnapshotScheduler,
+        RankingJobsWorker,
         MeasurementService,
         AdminCountriesService,
         AdminUsersPharmaciesService,

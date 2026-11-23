@@ -1,23 +1,10 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Queue, Worker, type ConnectionOptions } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
+import { redisConnection } from '../../common/bullmq';
 import { ENV, type Env } from '../../config/env';
 import { OtpDeliveryService, type OtpMessage } from './providers';
 
 const QUEUE = 'otp';
-
-function connection(url: string): ConnectionOptions {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port || 6379),
-    username: u.username || undefined,
-    password: u.password ? decodeURIComponent(u.password) : undefined,
-    db: u.pathname.length > 1 ? Number(u.pathname.slice(1)) : 0,
-    tls: u.protocol === 'rediss:' ? {} : undefined,
-    // Requerido por BullMQ para conexiones bloqueantes del worker.
-    maxRetriesPerRequest: null,
-  };
-}
 
 /**
  * Cola BullMQ de envío de OTP (CLAUDE.md §5). La solicitud HTTP solo encola; el worker envía con
@@ -36,7 +23,7 @@ export class OtpQueue implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    const conn = connection(this.env.REDIS_URL);
+    const conn = redisConnection(this.env.REDIS_URL);
     this.queue = new Queue<OtpMessage>(QUEUE, { connection: conn });
     if (this.env.OTP_WORKER_ENABLED) {
       this.worker = new Worker<OtpMessage>(
