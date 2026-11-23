@@ -152,4 +152,10 @@ node infra/staging-local/build-entrega.mjs /tmp/videos /tmp/entrega
 
 Genera `entrega-mvp.html` (un solo archivo con los videos incrustados) y `web/` (la misma página con los videos aparte). Requiere `ffmpeg`.
 
+Guía para presentar la demo (guion por bloque, selector de país, modo presentación con teclado y cronómetro, notas de la reunión):
+
+```bash
+node infra/staging-local/build-guia.mjs /tmp/entrega /tmp/guia /tmp/videos/manifest.json
+```
+
 PWA en http://localhost:8080, panel en http://localhost:8081. WhatsApp y SMS están simulados: el último código de cada número se ve en `http://localhost:4010/__inbox?to=+51900000001`. Detalle en ADR-032.
