@@ -37,7 +37,10 @@ Plataforma web móvil instalable (**PWA**) y panel de administración multi-paí
 │  ├─ shared/           # Esquemas Zod, tipos, reglas de juego justo, rankings, parser CSV, i18n, zonas horarias
 │  ├─ game-sdk/         # Contrato de integración de juegos y cola offline IndexedDB
 │  ├─ game-trivia/      # Molde reutilizable: Trivia de opción múltiple (< 10 KB)
-│  └─ game-true-false/  # Molde reutilizable: Verdadero / Falso (< 10 KB)
+│  ├─ game-true-false/  # Molde reutilizable: Verdadero / Falso (< 10 KB)
+│  ├─ game-arcade-kit/  # Base común de los estilos arcade (ADR-033)
+│  ├─ game-platform/    # «Ruta del Mostrador»: plataformas, prototipo
+│  └─ game-launch/      # «Tiro de Muestras»: lanzamiento con física, prototipo
 ├─ infra/
 │  ├─ docker-compose.yml
 │  └─ terraform/        # Infraestructura como código de referencia

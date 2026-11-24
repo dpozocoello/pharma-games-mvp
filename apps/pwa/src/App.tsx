@@ -31,6 +31,7 @@ import {
   verifyOtp,
 } from './api';
 import { readChosenCountry, saveChosenCountry } from './country';
+import { GAME_STYLES, readGameStyle, saveGameStyle, type GameStyle } from './gameStyle';
 import { setGameInProgress } from './pwa';
 import styles from './App.module.css';
 
@@ -42,6 +43,7 @@ export function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [gameStyle, setGameStyle] = useState<GameStyle>(() => readGameStyle());
 
   // El token vive en api.ts (se renueva solo ante un 401); aquí solo se refleja si hay sesión.
   useEffect(
@@ -159,6 +161,11 @@ export function App() {
     });
 
     const loadModule = async (): Promise<GameModule> => {
+      // Estilo arcade elegido por la persona (ADR-033). Ambos sirven para las dos mecánicas: solo
+      // cambia cómo se elige la opción; preguntas, envío y puntaje son los mismos.
+      const style = readGameStyle();
+      if (style === 'platform') return (await import('@pharma/game-platform')).default;
+      if (style === 'launch') return (await import('@pharma/game-launch')).default;
       if (activeSession.game.mechanic === 'MULTIPLE_CHOICE') {
         const mod = await import('@pharma/game-trivia');
         return mod.default;
@@ -577,6 +584,28 @@ export function App() {
             )}
 
             <h2 className={styles.subtitle}>Juegos por marca</h2>
+            <fieldset className={styles.styleChooser} aria-label="Estilo de juego">
+              <legend className={styles.muted}>Estilo de juego</legend>
+              {GAME_STYLES.map((st) => (
+                <label
+                  key={st.id}
+                  className={gameStyle === st.id ? styles.styleOn : styles.styleOff}
+                >
+                  <input
+                    type="radio"
+                    name="gameStyle"
+                    value={st.id}
+                    checked={gameStyle === st.id}
+                    onChange={() => {
+                      setGameStyle(st.id);
+                      saveGameStyle(st.id);
+                    }}
+                  />
+                  <strong>{st.label}</strong>
+                  <span>{st.hint}</span>
+                </label>
+              ))}
+            </fieldset>
             {catalog.data && catalog.data.pendingBrands.length > 0 && (
               <p className={styles.muted}>
                 Marcas pendientes en este periodo:{' '}

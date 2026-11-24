@@ -237,3 +237,47 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* Selector de estilo de juego (ADR-033). */
+.styleChooser {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.styleChooser legend {
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+.styleOn,
+.styleOff {
+  display: grid;
+  gap: 2px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 2px solid #cbd5e1;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: center;
+}
+.styleOn {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+.styleOn span,
+.styleOff span {
+  font-size: 0.72rem;
+  color: #475569;
+}
+.styleChooser input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.styleChooser label:focus-within {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}

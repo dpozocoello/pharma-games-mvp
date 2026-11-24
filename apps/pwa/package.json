@@ -13,6 +13,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@pharma/game-arcade-kit": "workspace:*",
+    "@pharma/game-launch": "workspace:*",
+    "@pharma/game-platform": "workspace:*",
     "@pharma/game-sdk": "workspace:*",
     "@pharma/game-trivia": "workspace:*",
     "@pharma/game-true-false": "workspace:*",

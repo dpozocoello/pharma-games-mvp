@@ -11,6 +11,8 @@ const gameTrivia = fileURLToPath(
 const gameTrueFalse = fileURLToPath(
   new URL('../../packages/game-true-false/src/index.ts', import.meta.url),
 );
+const pkg = (name: string) =>
+  fileURLToPath(new URL(`../../packages/${name}/src/index.ts`, import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -37,6 +39,9 @@ export default defineConfig({
       '@pharma/game-sdk': gameSdk,
       '@pharma/game-trivia': gameTrivia,
       '@pharma/game-true-false': gameTrueFalse,
+      '@pharma/game-arcade-kit': pkg('game-arcade-kit'),
+      '@pharma/game-platform': pkg('game-platform'),
+      '@pharma/game-launch': pkg('game-launch'),
     },
   },
   server: {

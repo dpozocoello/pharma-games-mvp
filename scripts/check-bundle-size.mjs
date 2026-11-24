@@ -45,7 +45,7 @@ const dirSize = (dir) =>
     const st = statSync(p);
     return acc + (st.isDirectory() ? dirSize(p) : name.endsWith('.map') ? 0 : st.size);
   }, 0);
-for (const pkg of ['game-trivia', 'game-true-false']) {
+for (const pkg of ['game-trivia', 'game-true-false', 'game-platform', 'game-launch']) {
   const dist = join(root, 'packages', pkg, 'dist');
   if (!existsSync(dist)) {
     errors.push(`${pkg}: falta dist/ (ejecuta pnpm build)`);

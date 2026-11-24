@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Demo juegos arcade</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --fg: #0f172a;
+        --muted: #475569;
+        --card: #ffffff;
+        --line: #cbd5e1;
+        --accent: #0f766e;
+        --warn-bg: #fef3c7;
+        --warn-fg: #78350f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --bg: #0b1120;
+          --fg: #e2e8f0;
+          --muted: #94a3b8;
+          --card: #111827;
+          --line: #334155;
+          --accent: #2dd4bf;
+          --warn-bg: #422006;
+          --warn-fg: #fde68a;
+        }
+      }
+      :root[data-theme='dark'] {
+        --bg: #0b1120;
+        --fg: #e2e8f0;
+        --muted: #94a3b8;
+        --card: #111827;
+        --line: #334155;
+        --accent: #2dd4bf;
+        --warn-bg: #422006;
+        --warn-fg: #fde68a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.45 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 440px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 4px;
+      }
+      p.lead {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .note {
+        background: var(--warn-bg);
+        color: var(--warn-fg);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+        margin-bottom: 12px;
+      }
+      .styles {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .styles button {
+        min-height: 44px;
+        border-radius: 10px;
+        border: 2px solid var(--line);
+        background: var(--card);
+        color: var(--fg);
+        font: inherit;
+        font-size: 0.88rem;
+        cursor: pointer;
+      }
+      .styles button[aria-pressed='true'] {
+        border-color: var(--accent);
+        font-weight: 700;
+      }
+      #game {
+        background: #fff;
+        color: #0f172a;
+        border-radius: 14px;
+        overflow: hidden;
+        min-height: 520px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Juegos arcade: demo jugable</h1>
+      <p class="lead">
+        El mismo partido de 5 preguntas en tres estilos. Elige el estilo y juega: en Plataformas
+        saltas debajo de la caja de tu respuesta; en Lanzamiento estiras la honda y apuntas al
+        blanco. El golpe solo marca la opción y después la confirmas.
+      </p>
+      <div class="note">
+        <strong>Solo demostración.</strong> Aquí el navegador corrige con una clave de prueba porque
+        no hay servidor. En la aplicación real las preguntas llegan sin la respuesta y el puntaje lo
+        calcula el servidor. Marca y preguntas ficticias.
+      </div>
+      <div class="styles" role="group" aria-label="Estilo de juego">
+        <button type="button" data-style="classic">Clásico</button>
+        <button type="button" data-style="platform">Plataformas</button>
+        <button type="button" data-style="launch">Lanzamiento</button>
+      </div>
+      <div id="game"></div>
+    </main>
+    <script>
+      /*BUNDLE*/
+    </script>
+  </body>
+</html>

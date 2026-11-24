@@ -176,6 +176,15 @@ importers:
 
   apps/pwa:
     dependencies:
+      '@pharma/game-arcade-kit':
+        specifier: workspace:*
+        version: link:../../packages/game-arcade-kit
+      '@pharma/game-launch':
+        specifier: workspace:*
+        version: link:../../packages/game-launch
+      '@pharma/game-platform':
+        specifier: workspace:*
+        version: link:../../packages/game-platform
       '@pharma/game-sdk':
         specifier: workspace:*
         version: link:../../packages/game-sdk
@@ -225,6 +234,60 @@ importers:
       workbox-window:
         specifier: 7.4.1
         version: 7.4.1
+
+  packages/game-arcade-kit:
+    dependencies:
+      '@pharma/game-sdk':
+        specifier: workspace:*
+        version: link:../game-sdk
+    devDependencies:
+      '@pharma/shared':
+        specifier: workspace:*
+        version: link:../shared
+      typescript:
+        specifier: ~5.7.2
+        version: 5.7.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
+
+  packages/game-launch:
+    dependencies:
+      '@pharma/game-arcade-kit':
+        specifier: workspace:*
+        version: link:../game-arcade-kit
+      '@pharma/game-sdk':
+        specifier: workspace:*
+        version: link:../game-sdk
+    devDependencies:
+      '@pharma/shared':
+        specifier: workspace:*
+        version: link:../shared
+      typescript:
+        specifier: ~5.7.2
+        version: 5.7.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
+
+  packages/game-platform:
+    dependencies:
+      '@pharma/game-arcade-kit':
+        specifier: workspace:*
+        version: link:../game-arcade-kit
+      '@pharma/game-sdk':
+        specifier: workspace:*
+        version: link:../game-sdk
+    devDependencies:
+      '@pharma/shared':
+        specifier: workspace:*
+        version: link:../shared
+      typescript:
+        specifier: ~5.7.2
+        version: 5.7.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
 
   packages/game-sdk:
     devDependencies:
@@ -4694,7 +4757,7 @@ snapshots:
 
   '@babel/helper-annotate-as-pure@7.29.7':
     dependencies:
-      '@babel/types': 7.29.14
+      '@babel/types': 7.29.15
 
   '@babel/helper-compilation-targets@7.29.13':
     dependencies:
@@ -4712,7 +4775,7 @@ snapshots:
       '@babel/helper-optimise-call-expression': 7.29.7
       '@babel/helper-replace-supers': 7.29.7(@babel/core@7.29.13)
       '@babel/helper-skip-transparent-expression-wrappers': 7.29.13
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
       semver: 6.3.2
     transitivePeerDependencies:
       - supports-color
@@ -4740,8 +4803,8 @@ snapshots:
   '@babel/helper-member-expression-to-functions@7.29.14':
     dependencies:
       '@babel/helper-skip-transparent-expression-wrappers': 7.29.13
-      '@babel/traverse': 7.29.14
-      '@babel/types': 7.29.14
+      '@babel/traverse': 7.29.15
+      '@babel/types': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4763,7 +4826,7 @@ snapshots:
 
   '@babel/helper-optimise-call-expression@7.29.7':
     dependencies:
-      '@babel/types': 7.29.14
+      '@babel/types': 7.29.15
 
   '@babel/helper-plugin-utils@7.29.7': {}
 
@@ -4772,7 +4835,7 @@ snapshots:
       '@babel/core': 7.29.13
       '@babel/helper-annotate-as-pure': 7.29.7
       '@babel/helper-wrap-function': 7.29.15
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4781,14 +4844,14 @@ snapshots:
       '@babel/core': 7.29.13
       '@babel/helper-member-expression-to-functions': 7.29.14
       '@babel/helper-optimise-call-expression': 7.29.7
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
   '@babel/helper-skip-transparent-expression-wrappers@7.29.13':
     dependencies:
-      '@babel/traverse': 7.29.14
-      '@babel/types': 7.29.14
+      '@babel/traverse': 7.29.15
+      '@babel/types': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4825,7 +4888,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4860,7 +4923,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4894,7 +4957,7 @@ snapshots:
       '@babel/core': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
       '@babel/helper-remap-async-to-generator': 7.29.7(@babel/core@7.29.13)
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4941,7 +5004,7 @@ snapshots:
       '@babel/helper-globals': 7.29.7
       '@babel/helper-plugin-utils': 7.29.7
       '@babel/helper-replace-supers': 7.29.7(@babel/core@7.29.13)
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -4955,7 +5018,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -5012,7 +5075,7 @@ snapshots:
       '@babel/core': 7.29.13
       '@babel/helper-compilation-targets': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -5098,7 +5161,7 @@ snapshots:
       '@babel/helper-plugin-utils': 7.29.7
       '@babel/plugin-transform-destructuring': 7.29.13(@babel/core@7.29.13)
       '@babel/plugin-transform-parameters': 7.29.7(@babel/core@7.29.13)
-      '@babel/traverse': 7.29.14
+      '@babel/traverse': 7.29.15
     transitivePeerDependencies:
       - supports-color
 
@@ -5308,7 +5371,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.13
       '@babel/helper-plugin-utils': 7.29.7
-      '@babel/types': 7.29.14
+      '@babel/types': 7.29.15
       esutils: 2.0.3
 
   '@babel/runtime@7.29.15': {}
