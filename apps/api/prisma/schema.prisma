@@ -50,6 +50,19 @@ enum GameStatus {
   INACTIVE
 }
 
+/// Estilo con que se juega una partida (ADR-033, ADR-034)
+enum GameStyle {
+  CLASSIC
+  PLATFORM
+  LAUNCH
+}
+
+/// Grupo del piloto A/B, asignado por farmacia (ADR-034)
+enum ExperimentGroup {
+  CONTROL
+  ARCADE
+}
+
 enum SessionStatus {
   IN_PROGRESS
   FINISHED
@@ -391,6 +404,9 @@ model GameSession {
   status      SessionStatus @default(IN_PROGRESS)
   /// Marcas de anomalía, tope alcanzado, etc.
   flags       String[]      @default([])
+  /// Estilo de juego y grupo del piloto A/B al iniciar (ADR-034); el grupo es nulo sin piloto.
+  style           GameStyle        @default(CLASSIC)
+  experimentGroup ExperimentGroup?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -402,6 +418,7 @@ model GameSession {
   anomalies AnomalyAlert[]
 
   @@index([userId, startedAt])
+  @@index([countryId, experimentGroup, startedAt])
   @@index([countryId, startedAt])
 }
 

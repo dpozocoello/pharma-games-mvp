@@ -1,5 +1,6 @@
+import type { GameExperience } from '@pharma/shared';
 import { describe, expect, it } from 'vitest';
-import { readGameStyle, saveGameStyle } from './gameStyle';
+import { pickGameStyle, saveGameStyle } from './gameStyle';
 
 const mem = () => {
   const m = new Map<string, string>();
@@ -8,18 +9,26 @@ const mem = () => {
     setItem: (k: string, v: string) => void m.set(k, v),
   };
 };
+const arcade: GameExperience = {
+  group: 'ARCADE',
+  styles: ['PLATFORM', 'LAUNCH'],
+  defaultStyle: 'PLATFORM',
+};
+const control: GameExperience = { group: 'CONTROL', styles: ['CLASSIC'], defaultStyle: 'CLASSIC' };
 
-describe('preferencia de estilo de juego', () => {
-  it('por defecto es clásico y guarda la elección', () => {
+describe('estilo de juego en la PWA', () => {
+  it('usa el estilo por defecto del grupo y recuerda la preferencia permitida', () => {
     const s = mem();
-    expect(readGameStyle(s)).toBe('classic');
-    saveGameStyle('launch', s);
-    expect(readGameStyle(s)).toBe('launch');
+    expect(pickGameStyle(arcade, s)).toBe('PLATFORM');
+    saveGameStyle('LAUNCH', s);
+    expect(pickGameStyle(arcade, s)).toBe('LAUNCH');
   });
-  it('ignora valores desconocidos y almacenamiento que falla', () => {
+  it('ignora una preferencia que el servidor no permite (grupo de control)', () => {
     const s = mem();
-    s.setItem('pharma.gameStyle', 'otro');
-    expect(readGameStyle(s)).toBe('classic');
+    saveGameStyle('LAUNCH', s);
+    expect(pickGameStyle(control, s)).toBe('CLASSIC');
+  });
+  it('tolera almacenamiento que falla', () => {
     const broken = {
       getItem: () => {
         throw new Error('x');
@@ -28,7 +37,7 @@ describe('preferencia de estilo de juego', () => {
         throw new Error('x');
       },
     };
-    expect(readGameStyle(broken)).toBe('classic');
-    expect(() => saveGameStyle('platform', broken)).not.toThrow();
+    expect(pickGameStyle(arcade, broken)).toBe('PLATFORM');
+    expect(() => saveGameStyle('PLATFORM', broken)).not.toThrow();
   });
 });

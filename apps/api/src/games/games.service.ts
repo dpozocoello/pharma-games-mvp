@@ -12,17 +12,21 @@ import {
   brandThemeSchema,
   calculateAnswerPoints,
   evaluateSessionAnomalies,
+  gameExperienceFor,
   localDay,
+  rulesForStyle,
   serverObservedTimes,
   toPublicQuestion,
   zonedMidnightUtc,
   type CatalogGameItem,
   type FinishSessionInput,
+  type GameExperience,
   type GameFinishResponse,
   type GamesCatalogResponse,
   type PointsRules,
   type PublicQuestion,
   type QuestionOption,
+  type StartSessionInput,
   type StartedGameSessionResponse,
   type SubmitSessionAnswersInput,
 } from '@pharma/shared';
@@ -246,17 +250,46 @@ export class GamesService {
       terms: country.terms,
       pendingBrands,
       games: catalogItems,
+      experience: await this.experienceFor(p.userId, country.pointsRules),
     };
+  }
+
+  /** Estilos permitidos y grupo del piloto según la farmacia vigente de la persona (ADR-034). */
+  private async experienceFor(userId: string, rules: PointsRules): Promise<GameExperience> {
+    if (!rules.arcade?.enabled) return gameExperienceFor(rules, null);
+    const assignment = await this.prisma.pharmacyAssignment.findFirst({
+      where: { userId, to: null },
+      orderBy: { from: 'desc' },
+      select: { pharmacyId: true },
+    });
+    return gameExperienceFor(rules, assignment?.pharmacyId ?? null);
   }
 
   // ───────────────────────────── Iniciar Partida (POST /games/:id/sessions) ─────────────────────────────
 
-  async startSession(p: Principal, gameId: string): Promise<StartedGameSessionResponse> {
+  async startSession(
+    p: Principal,
+    gameId: string,
+    input: StartSessionInput = {},
+  ): Promise<StartedGameSessionResponse> {
     if (!p.countryId) {
       throw new ForbiddenException('Tu cuenta no tiene un país asociado');
     }
     const country = await this.countries.getById(p.countryId);
     if (!country) throw new NotFoundException('País no encontrado');
+
+    // El estilo lo valida el servidor: en el piloto, cada farmacia juega solo los de su grupo.
+    // Sin estilo (cliente anterior) se usa el de su grupo, para no romper partidas.
+    const experience = await this.experienceFor(p.userId, country.pointsRules);
+    const style = input.style ?? experience.defaultStyle;
+    if (!experience.styles.includes(style)) {
+      throw new AppError(
+        HttpStatus.FORBIDDEN,
+        'STYLE_NOT_ALLOWED',
+        'Ese estilo de juego no está disponible para tu farmacia.',
+      );
+    }
+    const styleRules = rulesForStyle(country.pointsRules, style);
 
     const game = await this.prisma.game.findUnique({
       where: { id: gameId },
@@ -342,8 +375,7 @@ export class GamesService {
       });
     });
 
-    const totalSeconds =
-      country.pointsRules.questionsPerSession * country.pointsRules.secondsPerQuestion;
+    const totalSeconds = styleRules.questionsPerSession * styleRules.secondsPerQuestion;
     // Margen extra de 3 minutos para permitir reconexión si se corta la red entre preguntas (§4.6 y §8)
     const expiresAt = new Date(now.getTime() + (totalSeconds + 180) * 1000);
     const sessionId = uuidv7();
@@ -360,6 +392,8 @@ export class GamesService {
         startedAt: now,
         expiresAt,
         status: 'IN_PROGRESS',
+        style,
+        experimentGroup: experience.group,
       },
     });
 
@@ -382,6 +416,7 @@ export class GamesService {
         id: game.id,
         mechanic: game.mechanic,
         version: game.version,
+        style,
       },
       questions: publicQuestions,
       theme: {
@@ -391,7 +426,7 @@ export class GamesService {
       locale: country.locale,
       terms: country.terms,
       limits: {
-        secondsPerQuestion: country.pointsRules.secondsPerQuestion,
+        secondsPerQuestion: styleRules.secondsPerQuestion,
         totalSeconds,
       },
     };
@@ -428,7 +463,8 @@ export class GamesService {
 
     const country = await this.countries.getById(session.countryId);
     if (!country) throw new NotFoundException('País no encontrado');
-    const rules = country.pointsRules;
+    // Temporizador y ventana del bono según el estilo de la partida (ADR-034).
+    const rules = rulesForStyle(country.pointsRules, session.style);
 
     const allowedQuestionIds = new Set(session.questionIds);
     for (const a of input.answers) {
@@ -555,7 +591,8 @@ export class GamesService {
 
     const country = await this.countries.getById(session.countryId);
     if (!country) throw new NotFoundException('País no encontrado');
-    const rules = country.pointsRules;
+    // Temporizador y ventana del bono según el estilo de la partida (ADR-034).
+    const rules = rulesForStyle(country.pointsRules, session.style);
     const todayStr = localDay(now, country.timezone);
 
     let outcome: { response: GameFinishResponse; allowedPoints: number } | null;
@@ -693,6 +730,8 @@ export class GamesService {
               correct: correctCount,
               total: session.questionIds.length,
               onHold,
+              style: session.style,
+              experimentGroup: session.experimentGroup,
             },
             occurredAt: now,
           },

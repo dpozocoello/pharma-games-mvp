@@ -3,6 +3,7 @@ import type {
   ConsentAccept,
   GameFinishResponse,
   GamesCatalogResponse,
+  GameStyle,
   Identifier,
   MeResponse,
   MyRankingAndProfileResponse,
@@ -187,9 +188,15 @@ export async function fetchGamesCatalog(): Promise<GamesCatalogResponse> {
   return parseJson<GamesCatalogResponse>(res);
 }
 
-export async function startGameSession(gameId: string): Promise<StartedGameSessionResponse> {
+export async function startGameSession(
+  gameId: string,
+  style?: GameStyle,
+): Promise<StartedGameSessionResponse> {
   const res = await authFetch(`/api/v1/games/${gameId}/sessions`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // El servidor valida el estilo contra el grupo del piloto (ADR-034).
+    body: JSON.stringify(style ? { style } : {}),
   });
   return parseJson<StartedGameSessionResponse>(res);
 }

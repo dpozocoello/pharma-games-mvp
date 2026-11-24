@@ -20,6 +20,7 @@ import {
 } from '@pharma/shared';
 import { CurrentUser, RequireApp, Roles, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod';
+import { ArcadePilotService, type ArcadePilotReport } from './arcade-pilot.service';
 import { MeasurementService } from './measurement.service';
 
 const submitTestPipe = new ZodPipe(submitKnowledgeTestRequestSchema);
@@ -29,7 +30,10 @@ const usageEventPipe = new ZodPipe(usageEventInputSchema);
 @ApiBearerAuth()
 @Controller()
 export class MeasurementController {
-  constructor(private readonly measurement: MeasurementService) {}
+  constructor(
+    private readonly measurement: MeasurementService,
+    private readonly pilot: ArcadePilotService,
+  ) {}
 
   @RequireApp('pwa')
   @Roles('CLERK', 'PHARMACY_MANAGER')
@@ -71,5 +75,30 @@ export class MeasurementController {
     @Query('countryCode') countryCode?: string,
   ): Promise<string> {
     return this.measurement.exportParticipationCsv(p, countryId, countryCode);
+  }
+
+  @RequireApp('admin')
+  @Roles('SUPER_ADMIN', 'COUNTRY_ADMIN')
+  @Get('admin/reports/arcade-pilot')
+  arcadePilot(
+    @CurrentUser() p: Principal,
+    @Query('countryCode') countryCode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<ArcadePilotReport> {
+    return this.pilot.report(p, { countryCode, from, to });
+  }
+
+  @RequireApp('admin')
+  @Roles('SUPER_ADMIN', 'COUNTRY_ADMIN')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Get('admin/reports/arcade-pilot.csv')
+  arcadePilotCsv(
+    @CurrentUser() p: Principal,
+    @Query('countryCode') countryCode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<string> {
+    return this.pilot.reportCsv(p, { countryCode, from, to });
   }
 }

@@ -1,3 +1,36 @@
+# PLAN — Juegos arcade: fases F0 a F3 para el piloto en Perú
+
+Estado: **listo para encender el piloto** (quedan tareas 👤) · Fecha: 2026-11-24 · Aprobado: análisis «Juegos arcade: análisis de impacto, riesgos y plan» (ADR-033)
+
+## Objetivo
+
+Llevar los estilos arcade («Ruta del Mostrador» y «Tiro de Muestras») a un piloto A/B de 4 semanas en Perú. El grupo de control juega el estilo clásico; el grupo arcade, los estilos arcade. Se decide extender a EC y CO solo si se cumplen los criterios.
+
+## Tareas
+
+| Fase | Tarea                                                                                                                                                   | Quién                         | Estado       |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------ |
+| F0   | Dirección de arte, guía de sonido, checklist de propiedad intelectual y protocolo del piloto (`docs/juegos-arcade.md`)                                  | Equipo (aquí)                 | ✅           |
+| F0   | Revisión legal del arte final con la checklist                                                                                                          | Legal del cliente o proveedor | 👤 pendiente |
+| F1   | `shared`: estilos, reglas arcade opcionales por país, asignación A/B por farmacia, reglas por estilo                                                    | Equipo (aquí)                 | ✅           |
+| F1   | API: estilo guardado en la partida y validado, puntaje y tiempos con las reglas del estilo, experiencia en el catálogo, eventos con estilo y grupo      | Equipo (aquí)                 | ✅           |
+| F1   | PWA: solo estilos permitidos, envía el estilo al iniciar; panel con controles arcade; semillas de PE con el piloto configurado y apagado                | Equipo (aquí)                 | ✅           |
+| F1   | Arte y animación finales por un diseñador                                                                                                               | Diseño                        | 👤 pendiente |
+| F2   | Pruebas de integración (A/B, estilo, puntaje, reporte) y E2E arcade en Pixel 5 e iPhone 12 (este último emulado en Chromium; WebKit no disponible aquí) | Equipo (aquí)                 | ✅           |
+| F2   | Rendimiento con CPU ralentizada x4 y x6 (60 fps) y objetivos táctiles ≥ 44 px                                                                           | Equipo (aquí)                 | ✅           |
+| F2   | Prueba en 3 Android reales de 2 GB, Safari iOS real y auditoría AA con lector de pantalla                                                               | QA con dispositivos           | 👤 pendiente |
+| F3   | Reporte de indicadores del piloto `GET /admin/reports/arcade-pilot[.csv]` con veredicto, y sección en el panel                                          | Equipo (aquí)                 | ✅           |
+| F3   | Ensayo del piloto en staging con datos sintéticos                                                                                                       | Equipo (aquí)                 | ⏳           |
+| F3   | Piloto real de 4 semanas con dependientes de Perú, informe y decisión                                                                                   | Producto, cliente             | 👤 pendiente |
+
+## Riesgos y decisiones abiertas
+
+- El bono de velocidad se calcula sobre la ventana del estilo (30 s en arcade), para que los dos grupos compitan en el mismo ranking sin desventaja. Se revisa con datos del piloto.
+- Unidad de asignación: la farmacia (todo el equipo juega igual), para que los compañeros no se mezclen.
+- Las fases 👤 necesitan personas, dispositivos o calendario real: este repositorio deja todo listo para ellas.
+
+---
+
 # PLAN — Correcciones posteriores a la revisión de arquitectura
 
 Estado: **en curso** · Fecha: 2026-11-23 · Origen: `docs/revision-arquitectura.md`

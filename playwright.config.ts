@@ -16,6 +16,8 @@ const devEnv = {
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
+  // En serie: arcade.spec enciende el piloto en PE para todo el país mientras corre.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: 'list',

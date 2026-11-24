@@ -49,6 +49,17 @@ export default async function setup({ provide }: GlobalSetupContext) {
       await prisma.rankingPeriod.deleteMany({ where: { countryId: c.id } });
       await prisma.country.delete({ where: { id: c.id } });
     }
+
+    // Las semillas activan el piloto arcade en PE (ADR-034). Las pruebas parten sin él para que
+    // el grupo A/B de farmacias aleatorias no cambie sus resultados; arcade.int.test lo activa.
+    const pe = await prisma.countryConfig.findFirstOrThrow({ where: { country: { code: 'PE' } } });
+    const rules = pe.pointsRules as Record<string, unknown> & { arcade?: Record<string, unknown> };
+    if (rules.arcade) {
+      await prisma.countryConfig.update({
+        where: { id: pe.id },
+        data: { pointsRules: { ...rules, arcade: { ...rules.arcade, enabled: false } } },
+      });
+    }
   } finally {
     await prisma.$disconnect();
   }

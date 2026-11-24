@@ -14,6 +14,7 @@ import type {
   PharmacyCreate,
   PharmacyPatch,
   QuestionStatus,
+  PilotSummaryRow,
 } from '@pharma/shared';
 
 export interface AdminPharmacy {
@@ -463,6 +464,51 @@ export async function downloadParticipationCsv(
     throw new AdminApiError({
       status: res.status,
       detail: 'No se pudo exportar el reporte de participación CSV',
+    });
+  }
+  return res.text();
+}
+
+/** Indicadores del piloto arcade (ADR-034), por grupo A/B y estilo. */
+export interface ArcadePilotReportView {
+  countryCode: string;
+  from: string;
+  to: string;
+  abTest: { enabled: boolean; arcadeSharePct: number } | null;
+  groups: Record<
+    'CONTROL' | 'ARCADE',
+    { pharmacies: number; clerksAssigned: number; participationPct: number | null }
+  >;
+  rows: PilotSummaryRow[];
+  verdict: {
+    sessionsLiftPct: number;
+    accuracyDeltaPts: number;
+    return7dDeltaPts: number;
+    arcadeAbandonPct: number;
+    meetsCriteria: boolean;
+  } | null;
+}
+
+export async function getArcadePilotReport(
+  token: string,
+  countryCode: string,
+): Promise<ArcadePilotReportView> {
+  const res = await fetch(
+    `/api/v1/admin/reports/arcade-pilot?countryCode=${encodeURIComponent(countryCode)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return parseJson<ArcadePilotReportView>(res);
+}
+
+export async function downloadArcadePilotCsv(token: string, countryCode: string): Promise<string> {
+  const res = await fetch(
+    `/api/v1/admin/reports/arcade-pilot.csv?countryCode=${encodeURIComponent(countryCode)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    throw new AdminApiError({
+      status: res.status,
+      detail: 'No se pudo exportar el reporte del piloto',
     });
   }
   return res.text();

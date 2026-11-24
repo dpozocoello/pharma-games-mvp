@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createGameContext, type GameHandle, type GameModule } from '@pharma/game-sdk';
 import {
   t,
+  type GameStyle,
   type Identifier,
   type MeResponse,
   type PendingKnowledgeTest,
@@ -31,7 +32,7 @@ import {
   verifyOtp,
 } from './api';
 import { readChosenCountry, saveChosenCountry } from './country';
-import { GAME_STYLES, readGameStyle, saveGameStyle, type GameStyle } from './gameStyle';
+import { pickGameStyle, saveGameStyle, STYLE_INFO } from './gameStyle';
 import { setGameInProgress } from './pwa';
 import styles from './App.module.css';
 
@@ -43,7 +44,7 @@ export function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
-  const [gameStyle, setGameStyle] = useState<GameStyle>(() => readGameStyle());
+  const [stylePref, setStylePref] = useState<GameStyle | null>(null);
 
   // El token vive en api.ts (se renueva solo ante un 401); aquí solo se refleja si hay sesión.
   useEffect(
@@ -91,6 +92,13 @@ export function App() {
     queryFn: () => fetchGamesCatalog(),
     enabled: canPlay,
   });
+  // Estilos permitidos por el servidor (piloto A/B por farmacia, ADR-034) y la preferencia local.
+  const experience = catalog.data?.experience;
+  const gameStyle: GameStyle | undefined = experience
+    ? stylePref && experience.styles.includes(stylePref)
+      ? stylePref
+      : pickGameStyle(experience)
+    : undefined;
   const pendingTestsQuery = useQuery({
     queryKey: ['pending-tests', me?.id],
     queryFn: () => fetchPendingTests(),
@@ -161,11 +169,11 @@ export function App() {
     });
 
     const loadModule = async (): Promise<GameModule> => {
-      // Estilo arcade elegido por la persona (ADR-033). Ambos sirven para las dos mecánicas: solo
-      // cambia cómo se elige la opción; preguntas, envío y puntaje son los mismos.
-      const style = readGameStyle();
-      if (style === 'platform') return (await import('@pharma/game-platform')).default;
-      if (style === 'launch') return (await import('@pharma/game-launch')).default;
+      // Estilo de la partida según el servidor (ADR-033, ADR-034). Los arcade sirven para las dos
+      // mecánicas: solo cambia cómo se elige la opción; preguntas, envío y puntaje son los mismos.
+      const style = activeSession.game.style;
+      if (style === 'PLATFORM') return (await import('@pharma/game-platform')).default;
+      if (style === 'LAUNCH') return (await import('@pharma/game-launch')).default;
       if (activeSession.game.mechanic === 'MULTIPLE_CHOICE') {
         const mod = await import('@pharma/game-trivia');
         return mod.default;
@@ -268,7 +276,7 @@ export function App() {
     setErrorMsg(null);
     setBusy(true);
     try {
-      const started = await startGameSession(gameId);
+      const started = await startGameSession(gameId, gameStyle);
       setActiveSession(started);
     } catch (err) {
       setErrorMsg(err instanceof ApiHttpError ? err.message : 'No se pudo iniciar la partida.');
@@ -584,28 +592,27 @@ export function App() {
             )}
 
             <h2 className={styles.subtitle}>Juegos por marca</h2>
-            <fieldset className={styles.styleChooser} aria-label="Estilo de juego">
-              <legend className={styles.muted}>Estilo de juego</legend>
-              {GAME_STYLES.map((st) => (
-                <label
-                  key={st.id}
-                  className={gameStyle === st.id ? styles.styleOn : styles.styleOff}
-                >
-                  <input
-                    type="radio"
-                    name="gameStyle"
-                    value={st.id}
-                    checked={gameStyle === st.id}
-                    onChange={() => {
-                      setGameStyle(st.id);
-                      saveGameStyle(st.id);
-                    }}
-                  />
-                  <strong>{st.label}</strong>
-                  <span>{st.hint}</span>
-                </label>
-              ))}
-            </fieldset>
+            {experience && experience.styles.length > 1 && (
+              <fieldset className={styles.styleChooser} aria-label="Estilo de juego">
+                <legend className={styles.muted}>Estilo de juego</legend>
+                {experience.styles.map((id) => (
+                  <label key={id} className={gameStyle === id ? styles.styleOn : styles.styleOff}>
+                    <input
+                      type="radio"
+                      name="gameStyle"
+                      value={id}
+                      checked={gameStyle === id}
+                      onChange={() => {
+                        setStylePref(id);
+                        saveGameStyle(id);
+                      }}
+                    />
+                    <strong>{STYLE_INFO[id].label}</strong>
+                    <span>{STYLE_INFO[id].hint}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             {catalog.data && catalog.data.pendingBrands.length > 0 && (
               <p className={styles.muted}>
                 Marcas pendientes en este periodo:{' '}

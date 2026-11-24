@@ -37,6 +37,7 @@ import { ConsentService } from './me/consent.service';
 import { MeController } from './me/me.controller';
 import { MeService } from './me/me.service';
 import { MeasurementController } from './measurement/measurement.controller';
+import { ArcadePilotService } from './measurement/arcade-pilot.service';
 import { MeasurementService } from './measurement/measurement.service';
 import { RankingsController } from './rankings/rankings.controller';
 import { DailySnapshotScheduler } from './rankings/daily-snapshot.scheduler';
@@ -137,6 +138,7 @@ export class AppModule {
         DailySnapshotScheduler,
         RankingJobsWorker,
         MeasurementService,
+        ArcadePilotService,
         AdminCountriesService,
         AdminUsersPharmaciesService,
         AdminContentService,

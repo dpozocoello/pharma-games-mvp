@@ -51,6 +51,10 @@ En producción (`NODE_ENV=production`) la API **aborta el arranque inmediatament
 - **Publicar una versión nueva:** al desplegar la PWA, los celulares descargan la versión nueva en segundo plano y muestran "Hay una versión nueva — Actualizar" cuando no hay una partida en curso. No se fuerza la recarga.
 - **Verificación manual en iPhone (Safari):** instalar desde "Compartir → Agregar a inicio", abrir una vez con red, activar el modo avión y abrir de nuevo: debe verse la pantalla de ingreso con el aviso "Sin conexión". Las pruebas automáticas cubren esto en Chromium (`tests/e2e/offline.spec.ts`).
 
+## 2.3 Piloto de Juegos Arcade (ADR-034)
+
+Encender, seguir y apagar el piloto A/B en Perú, y extenderlo a otro país por configuración: ver [`docs/juegos-arcade.md`](juegos-arcade.md) §6.
+
 ## 3. Alta de un Nuevo País por Configuración (Sin Despliegue)
 
 1. Ingresar al panel de administración (`http://localhost:5174`) con cuenta `SUPER_ADMIN`.

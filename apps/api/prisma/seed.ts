@@ -7,6 +7,7 @@ import { PrismaClient, type Prisma, type Role } from '@prisma/client';
 import {
   COUNTRY_CODES,
   COUNTRY_DEFAULTS,
+  DEFAULT_ARCADE_RULES,
   DEFAULT_POINTS_RULES,
   normalizeDocument,
   questionSchema,
@@ -65,11 +66,30 @@ async function seedCountries() {
         id: uuidv7(),
         countryId: country.id,
         terms: DEFAULT_TERMS[code],
-        pointsRules: DEFAULT_POINTS_RULES as unknown as Prisma.InputJsonValue,
+        pointsRules: rulesFor(code) as unknown as Prisma.InputJsonValue,
         rankingPeriodMonths: 1,
         consentVersionId: consent.id,
       },
     });
+    // Piloto arcade solo en Perú (ADR-034), apagado. En bases ya sembradas se agrega una vez, sin tocar
+    // otras reglas; en producción se configura desde el panel.
+    if (code === 'PE') {
+      const cfg = await prisma.countryConfig.findUniqueOrThrow({
+        where: { countryId: country.id },
+      });
+      const current = cfg.pointsRules as Record<string, unknown>;
+      if (!current.arcade) {
+        await prisma.countryConfig.update({
+          where: { countryId: country.id },
+          data: {
+            pointsRules: {
+              ...current,
+              arcade: PE_ARCADE_RULES,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
 
     const { startsAt, endsAt } = rankingPeriodBounds(new Date(), d.timezone, 1);
     const open = await prisma.rankingPeriod.findFirst({
@@ -82,6 +102,18 @@ async function seedCountries() {
     }
   }
   return ids;
+}
+
+/**
+ * Piloto arcade de Perú configurado pero apagado: se enciende desde el panel el día de inicio
+ * (docs/juegos-arcade.md). Así las demos y pruebas existentes siguen en el estilo clásico.
+ */
+const PE_ARCADE_RULES = { ...DEFAULT_ARCADE_RULES, enabled: false };
+
+function rulesFor(code: CountryCode) {
+  return code === 'PE'
+    ? { ...DEFAULT_POINTS_RULES, arcade: PE_ARCADE_RULES }
+    : DEFAULT_POINTS_RULES;
 }
 
 async function seedBrands(countryIds: Record<CountryCode, string>) {

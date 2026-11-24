@@ -1,6 +1,8 @@
 import {
+  DEFAULT_ARCADE_RULES,
   QUESTION_STATUS_TRANSITIONS,
   ROLES,
+  type ArcadeRules,
   type AdminCountrySummary,
   type AnomalyAlertView,
   type CountryConfigView,
@@ -43,6 +45,9 @@ import {
   type AdminPharmacy,
   type AdminQuestion,
   type AdminUser,
+  downloadArcadePilotCsv,
+  getArcadePilotReport,
+  type ArcadePilotReportView,
 } from './api';
 import styles from './AdminApp.module.css';
 import './global.css';
@@ -79,6 +84,9 @@ export function AdminApp() {
   const [dailyCapPerUser, setDailyCapPerUser] = useState(300);
   const [dailyCapPerBrand, setDailyCapPerBrand] = useState(120);
   const [minAnswerMs, setMinAnswerMs] = useState(800);
+  // Piloto arcade (ADR-034): null = el país no tiene reglas arcade.
+  const [arcade, setArcade] = useState<ArcadeRules | null>(null);
+  const [pilotReport, setPilotReport] = useState<ArcadePilotReportView | null>(null);
   const [termsJson, setTermsJson] = useState('{}');
   const [newConsentText, setNewConsentText] = useState('');
 
@@ -203,6 +211,8 @@ export function AdminApp() {
     setDailyCapPerUser(view.pointsRules.dailyCapPerUser);
     setDailyCapPerBrand(view.pointsRules.dailyCapPerBrand);
     setMinAnswerMs(view.pointsRules.minAnswerMs);
+    setArcade(view.pointsRules.arcade ?? null);
+    setPilotReport(null);
     setTermsJson(JSON.stringify(view.terms, null, 2));
   }
 
@@ -268,6 +278,7 @@ export function AdminApp() {
           dailyCapPerUser,
           dailyCapPerBrand,
           minAnswerMs,
+          ...(arcade ? { arcade } : {}),
         },
       });
       applyConfigView(updated);
@@ -572,6 +583,31 @@ export function AdminApp() {
       );
     } catch (err) {
       setConfigError(err instanceof AdminApiError ? err.message : 'Error al cerrar periodo');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLoadPilot(exportCsv: boolean) {
+    if (!token || !configView) return;
+    setFeedback(null);
+    setConfigError(null);
+    setBusy(true);
+    try {
+      const code = configView.country.code;
+      setPilotReport(await getArcadePilotReport(token, code));
+      if (exportCsv) {
+        const csv = await downloadArcadePilotCsv(token, code);
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `piloto-arcade-${code}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setFeedback('Indicadores del piloto exportados en CSV (registrado en auditoría).');
+      }
+    } catch (err) {
+      setConfigError(err instanceof AdminApiError ? err.message : 'Error al leer el piloto');
     } finally {
       setBusy(false);
     }
@@ -956,6 +992,82 @@ export function AdminApp() {
                   </label>
                 </div>
 
+                <fieldset
+                  className={styles.form}
+                  style={{ border: '1px solid #cbd5e1', borderRadius: 10, padding: 12 }}
+                >
+                  <legend>Juegos arcade y piloto A/B</legend>
+                  <label
+                    className={styles.label}
+                    style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={arcade?.enabled ?? false}
+                      onChange={(e) =>
+                        setArcade({
+                          ...(arcade ?? DEFAULT_ARCADE_RULES),
+                          enabled: e.target.checked,
+                        })
+                      }
+                    />
+                    Estilos arcade activos
+                  </label>
+                  {arcade && (
+                    <div className={styles.grid}>
+                      <label className={styles.label}>
+                        Segundos por pregunta en arcade
+                        <input
+                          className={styles.input}
+                          type="number"
+                          min={5}
+                          max={300}
+                          value={arcade.secondsPerQuestion}
+                          onChange={(e) =>
+                            setArcade({ ...arcade, secondsPerQuestion: Number(e.target.value) })
+                          }
+                        />
+                      </label>
+                      <label
+                        className={styles.label}
+                        style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={arcade.abTest.enabled}
+                          onChange={(e) =>
+                            setArcade({
+                              ...arcade,
+                              abTest: { ...arcade.abTest, enabled: e.target.checked },
+                            })
+                          }
+                        />
+                        Piloto A/B por farmacia
+                      </label>
+                      <label className={styles.label}>
+                        % de farmacias en grupo arcade
+                        <input
+                          className={styles.input}
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={arcade.abTest.arcadeSharePct}
+                          onChange={(e) =>
+                            setArcade({
+                              ...arcade,
+                              abTest: { ...arcade.abTest, arcadeSharePct: Number(e.target.value) },
+                            })
+                          }
+                        />
+                      </label>
+                      <label className={styles.label}>
+                        Semilla de asignación (no cambiar durante un piloto)
+                        <input className={styles.input} value={arcade.abTest.salt} readOnly />
+                      </label>
+                    </div>
+                  )}
+                </fieldset>
+
                 <label className={styles.label}>
                   Términos locales (JSON)
                   <textarea
@@ -1020,6 +1132,100 @@ export function AdminApp() {
                   </div>
                 </>
               )}
+
+              <hr className={styles.divider} />
+
+              <div>
+                <h3>Piloto arcade: indicadores</h3>
+                <p className={styles.muted}>
+                  Grupo arcade frente a control en el periodo abierto. Criterios: partidas por
+                  activo +20 %, aciertos sin caer más de 3 puntos y abandono menor a 15 %.
+                </p>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    disabled={busy}
+                    onClick={() => handleLoadPilot(false)}
+                  >
+                    Ver indicadores
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    disabled={busy}
+                    onClick={() => handleLoadPilot(true)}
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
+                {pilotReport && (
+                  <div style={{ marginTop: 10, overflowX: 'auto' }}>
+                    <p className={styles.muted}>
+                      {pilotReport.from.slice(0, 10)} a {pilotReport.to.slice(0, 10)} · arcade:{' '}
+                      {pilotReport.groups.ARCADE.pharmacies} farmacias (participación{' '}
+                      {pilotReport.groups.ARCADE.participationPct ?? '—'} %), control:{' '}
+                      {pilotReport.groups.CONTROL.pharmacies} farmacias (participación{' '}
+                      {pilotReport.groups.CONTROL.participationPct ?? '—'} %)
+                    </p>
+                    <table
+                      style={{ borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: 560 }}
+                    >
+                      <thead>
+                        <tr>
+                          {[
+                            'Grupo',
+                            'Estilo',
+                            'Activos',
+                            'Partidas',
+                            'Por activo/sem',
+                            'Aciertos %',
+                            'Abandono %',
+                            'Retorno 7 d %',
+                          ].map((hd) => (
+                            <th
+                              key={hd}
+                              style={{
+                                textAlign: 'left',
+                                padding: '4px 8px',
+                                borderBottom: '1px solid #cbd5e1',
+                              }}
+                            >
+                              {hd}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pilotReport.rows.map((r) => (
+                          <tr
+                            key={`${r.group}-${r.style}`}
+                            style={{ fontWeight: r.style === 'ALL' ? 700 : 400 }}
+                          >
+                            <td style={{ padding: '4px 8px' }}>
+                              {r.group === 'ARCADE' ? 'Arcade' : 'Control'}
+                            </td>
+                            <td style={{ padding: '4px 8px' }}>
+                              {r.style === 'ALL' ? 'Total' : r.style}
+                            </td>
+                            <td style={{ padding: '4px 8px' }}>{r.activeClerks}</td>
+                            <td style={{ padding: '4px 8px' }}>{r.sessionsFinished}</td>
+                            <td style={{ padding: '4px 8px' }}>{r.sessionsPerActivePerWeek}</td>
+                            <td style={{ padding: '4px 8px' }}>{r.accuracyPct}</td>
+                            <td style={{ padding: '4px 8px' }}>{r.abandonPct}</td>
+                            <td style={{ padding: '4px 8px' }}>{r.return7dPct}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p style={{ marginTop: 8 }}>
+                      {pilotReport.verdict
+                        ? `Partidas por activo ${pilotReport.verdict.sessionsLiftPct >= 0 ? '+' : ''}${pilotReport.verdict.sessionsLiftPct} %, aciertos ${pilotReport.verdict.accuracyDeltaPts} pts, abandono arcade ${pilotReport.verdict.arcadeAbandonPct} %: ${pilotReport.verdict.meetsCriteria ? 'cumple los criterios' : 'aún no cumple los criterios'}.`
+                        : 'Aún no hay datos de ambos grupos para comparar.'}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <hr className={styles.divider} />
 

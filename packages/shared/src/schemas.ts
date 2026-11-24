@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { arcadeRulesSchema, type GameExperience, type GameStyle } from './arcade';
 import {
   QUESTION_STATUS_TRANSITIONS,
   QUESTION_TYPES,
@@ -31,6 +32,8 @@ export const pointsRulesSchema = z
         maxSessionsPerHour: z.number().int().min(1),
       })
       .strict(),
+    /** Estilos arcade y piloto A/B (ADR-034). Opcional: sin él, solo el estilo clásico. */
+    arcade: arcadeRulesSchema.optional(),
   })
   .strict()
   .refine((r) => r.dailyCapPerBrand <= r.dailyCapPerUser, {
@@ -209,6 +212,8 @@ export interface GamesCatalogResponse {
   terms: Record<string, string>;
   pendingBrands: { brandId: string; brandSlug: string; brandName: string }[];
   games: CatalogGameItem[];
+  /** Estilos que esta persona puede jugar y su grupo del piloto A/B (ADR-034). */
+  experience: GameExperience;
 }
 
 export interface StartedGameSessionResponse {
@@ -221,6 +226,7 @@ export interface StartedGameSessionResponse {
     id: string;
     mechanic: 'MULTIPLE_CHOICE' | 'TRUE_FALSE';
     version: string;
+    style: GameStyle;
   };
   questions: PublicQuestion[];
   theme: BrandTheme & { brandName: string };

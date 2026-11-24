@@ -2,10 +2,13 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@ne
 import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
 import {
   finishSessionSchema,
+  startSessionBodySchema,
+  startSessionSchema,
   submitSessionAnswersSchema,
   type FinishSessionInput,
   type GameFinishResponse,
   type GamesCatalogResponse,
+  type StartSessionInput,
   type StartedGameSessionResponse,
   type SubmitSessionAnswersInput,
 } from '@pharma/shared';
@@ -26,13 +29,15 @@ export class GamesController {
     return this.games.listGamesForUser(p);
   }
 
+  @ApiBody({ schema: openApiSchema(startSessionSchema), required: false })
   @HttpCode(201)
   @Post('games/:id/sessions')
   startSession(
     @CurrentUser() p: Principal,
     @Param('id', new ParseUUIDPipe()) gameId: string,
+    @Body(new ZodPipe(startSessionBodySchema)) body: StartSessionInput,
   ): Promise<StartedGameSessionResponse> {
-    return this.games.startSession(p, gameId);
+    return this.games.startSession(p, gameId, body);
   }
 
   @ApiBody({ schema: openApiSchema(submitSessionAnswersSchema) })

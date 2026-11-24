@@ -8,3 +8,5 @@ export * from './csv';
 export * from './fair-play';
 export * from './rankings';
 export * from './measurement';
+export * from './arcade';
+export * from './arcade-pilot';

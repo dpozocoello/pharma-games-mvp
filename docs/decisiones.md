@@ -155,3 +155,13 @@ Relacionado: la vista de usuario del panel calculaba los puntos excluyendo `onHo
 · Peso: 10,7 KB y 12,7 KB por juego + 9,6 KB del kit, cargados solo al jugar; el JS inicial de la PWA no cambia (verificado por `pnpm size`).
 · Demo sin servidor en `infra/arcade-demo/` (`node infra/arcade-demo/build.mjs <salida.html>`), con una clave de respuestas **solo de demostración**, rotulada en pantalla.
 · Análisis de impacto, riesgos y plan (9 semanas, 74 días-persona, piloto A/B en Perú) presentado para aprobación.
+
+## ADR-034 — Piloto arcade A/B por farmacia, con el estilo validado en el servidor
+
+2026-11-24 · Aprobadas las fases F0 a F3 para Perú. Detalle operativo en `docs/juegos-arcade.md`.
+· **Configuración, no código:** `pointsRules.arcade` (opcional, Zod) con `enabled`, `secondsPerQuestion` y `abTest {enabled, arcadeSharePct, salt}`. Se edita desde el panel. Sin el bloque, el país solo tiene el estilo clásico. Las semillas lo dejan configurado y **apagado** en PE: se enciende el día de inicio.
+· **Asignación por farmacia**, determinista (FNV-1a de `salt:pharmacyId`), igual en cualquier instancia y sin estado. Control: solo clásico. Arcade: plataformas o lanzamiento. Sin farmacia vigente: control.
+· **El servidor decide:** `GET /games` devuelve `experience {group, styles, defaultStyle}`. `POST /games/:id/sessions {style?}` rechaza con 403 `STYLE_NOT_ALLOWED` un estilo fuera del grupo. Sin `style` (clientes anteriores) usa el del grupo. La partida guarda `style` y `experimentGroup` (migración `20261124000000_game_style`).
+· **Puntaje comparable:** en arcade solo cambian los segundos por pregunta (30 s). El bono de velocidad se calcula sobre esa ventana, así que responder en la misma proporción del tiempo da el mismo bono en ambos estilos. Las preguntas por partida y los puntos por acierto no cambian. Ambos grupos compiten en el mismo ranking.
+· **Medición:** `GET /admin/reports/arcade-pilot` (JSON con veredicto) y `.csv` (auditado), por grupo y estilo, con alcance por país. La agregación es una función pura en `shared` (`summarizeArcadePilot`).
+· **Pruebas:** la base de integración parte con el piloto apagado; `arcade.int.test.ts` lo enciende con el panel y lo restaura. Playwright pasa a `workers: 1` porque `arcade.spec.ts` enciende el piloto para todo PE mientras corre, y reutiliza la sesión del admin por su cookie de renovación para no agotar el límite de OTP.

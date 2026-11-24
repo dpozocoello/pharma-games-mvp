@@ -1,14 +1,14 @@
+import type { GameExperience, GameStyle } from '@pharma/shared';
+
 /**
- * Estilo de juego elegido por la persona (ADR-033): «Clásico» (botones), «Plataformas» o
- * «Lanzamiento». Es solo una preferencia local de presentación: las preguntas, el envío de
- * respuestas y el puntaje son los mismos y los decide el servidor.
+ * Estilo de juego (ADR-033, ADR-034). El servidor decide qué estilos puede jugar cada persona
+ * (grupo del piloto A/B por farmacia); aquí solo se recuerda la preferencia entre los permitidos.
  */
-export const GAME_STYLES = [
-  { id: 'classic', label: 'Clásico', hint: 'Toca la respuesta' },
-  { id: 'platform', label: 'Plataformas', hint: 'Salta a la caja de tu respuesta' },
-  { id: 'launch', label: 'Lanzamiento', hint: 'Lanza la cápsula a tu respuesta' },
-] as const;
-export type GameStyle = (typeof GAME_STYLES)[number]['id'];
+export const STYLE_INFO: Record<GameStyle, { label: string; hint: string }> = {
+  CLASSIC: { label: 'Clásico', hint: 'Toca la respuesta' },
+  PLATFORM: { label: 'Plataformas', hint: 'Salta a la caja de tu respuesta' },
+  LAUNCH: { label: 'Lanzamiento', hint: 'Lanza la cápsula a tu respuesta' },
+};
 
 const KEY = 'pharma.gameStyle';
 
@@ -20,19 +20,21 @@ function safeStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
   }
 }
 
-export function readGameStyle(storage = safeStorage()): GameStyle {
+/** Preferencia guardada si el servidor la permite; si no, el estilo por defecto del grupo. */
+export function pickGameStyle(experience: GameExperience, storage = safeStorage()): GameStyle {
   try {
-    const v = storage?.getItem(KEY);
-    return GAME_STYLES.some((s) => s.id === v) ? (v as GameStyle) : 'classic';
+    const v = storage?.getItem(KEY) as GameStyle | null | undefined;
+    if (v && experience.styles.includes(v)) return v;
   } catch {
-    return 'classic';
+    // Almacenamiento bloqueado: se usa el estilo por defecto.
   }
+  return experience.defaultStyle;
 }
 
 export function saveGameStyle(style: GameStyle, storage = safeStorage()): void {
   try {
     storage?.setItem(KEY, style);
   } catch {
-    // Modo privado: se usa el estilo clásico.
+    // Modo privado: se usará el estilo por defecto.
   }
 }
